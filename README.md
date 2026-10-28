@@ -72,6 +72,19 @@ SLIPOK_BRANCH_ID=... SLIPOK_API_KEY=...   # ถ้าใช้ SlipOK
 - สลิปไฟล์ PDF ตรวจอัตโนมัติไม่ได้ ระบบจะส่งให้ร้านค้าตรวจ
 - ประวัติการตรวจทุกครั้งดูได้ที่ `GET /v1/payments/:id/slip-checks`
 
+## Dashboard ร้านค้า
+
+เปิด `https://<โดเมนเกตเวย์>/dashboard` แล้วเข้าสู่ระบบด้วย Secret key ของร้าน (`sk_test_` = ข้อมูลทดสอบ, `sk_live_` = ข้อมูลจริง)
+
+- **ภาพรวม**: ยอดขายวันนี้ / 14 วัน, กราฟยอดขายรายวัน (ดูเป็นตารางได้), จำนวนรายการที่รอตรวจสอบ
+- **รายการชำระเงิน**: ค้นหาตามเลขอ้างอิง/รายละเอียด กรองตามสถานะ กดดูรายละเอียดเพื่อดูสลิป ผลตรวจสลิปอัตโนมัติ และประวัติการตรวจ
+  พร้อมปุ่ม **ยืนยันว่าได้รับเงิน / ปฏิเสธสลิป / ยกเลิกรายการ**
+- **สร้างลิงก์ชำระเงิน**: กรอกยอดแล้วได้ลิงก์ + QR ส่งให้ลูกค้าทาง LINE ได้ทันที ไม่ต้องเชื่อม API
+- **ตั้งค่า**: ข้อมูลรับเงิน, webhook secret และสถานะการส่ง webhook ล่าสุด
+
+ความปลอดภัย: key ใช้แค่ตอนเข้าสู่ระบบ จากนั้นเบราว์เซอร์ถือเพียง session cookie แบบ HttpOnly + SameSite=Strict อายุ 12 ชั่วโมง
+session จะหมดอายุทันทีเมื่อแอดมิน rotate key หรือปิดร้าน
+
 ## API สำหรับร้านค้า
 
 ยืนยันตัวตนด้วย `Authorization: Bearer sk_test_...` (ทดสอบ) หรือ `sk_live_...` (ใช้งานจริง) ข้อมูลทดสอบกับข้อมูลจริงแยกจากกันเด็ดขาด
@@ -187,7 +200,7 @@ src/
   providers/card.ts      Mock + Omise card provider
   services/              merchants, payments (state machine), slips (ตรวจสลิป), webhooks
   slip/                  ตัวเชื่อม EasySlip / SlipOK + กฎตรวจสลิป
-  routes/                merchant API, admin API, หน้า checkout
+  routes/                merchant API, admin API, หน้า checkout, dashboard
 test/                    ชุดทดสอบ (node:test)
 ```
 

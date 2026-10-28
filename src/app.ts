@@ -7,6 +7,7 @@ import { openDb } from "./db.ts";
 import { type CardProvider, MockCardProvider, OmiseCardProvider } from "./providers/card.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { checkoutRoutes, MAX_SLIP_BYTES } from "./routes/checkout.ts";
+import { dashboardRoutes } from "./routes/dashboard.ts";
 import { merchantApiRoutes } from "./routes/merchant-api.ts";
 import { MerchantService } from "./services/merchants.ts";
 import { PaymentError, PaymentService } from "./services/payments.ts";
@@ -86,8 +87,10 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   });
 
   app.get("/health", async () => ({ ok: true }));
+  app.get("/", async (_req, reply) => reply.redirect("/dashboard"));
   await app.register(merchantApiRoutes, { merchants, payments, slips });
   await app.register(adminRoutes, { db, adminToken: config.adminToken, merchants, payments });
+  await app.register(dashboardRoutes, { db, merchants, payments, slips });
   await app.register(checkoutRoutes, { merchants, payments, slips, omisePublicKey: config.omise?.publicKey ?? null });
 
   const runJobs = async () => {

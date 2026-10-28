@@ -54,19 +54,14 @@ export async function merchantApiRoutes(
 
   // PromptPay and bank transfers settle directly into the merchant's account, so the
   // merchant confirms receipt (typically after checking the uploaded slip).
-  app.post<{ Params: { id: string } }>("/v1/payments/:id/approve", async (req) => {
-    const p = own(req, req.params.id);
-    if (p.method === "card") throw new PaymentError(400, "invalid_method", "Card payments are confirmed by the card provider");
-    return payments.serialize(payments.transition(p.id, "succeeded"));
-  });
+  app.post<{ Params: { id: string } }>("/v1/payments/:id/approve", async (req) =>
+    payments.serialize(payments.approve(own(req, req.params.id))),
+  );
 
   app.post<{ Params: { id: string } }>("/v1/payments/:id/reject", async (req) => {
     const p = own(req, req.params.id);
     const { reason } = rejectSchema.parse(req.body ?? {});
-    if (p.status !== "awaiting_review") {
-      throw new PaymentError(409, "invalid_state", "Only payments awaiting review can be rejected");
-    }
-    return payments.serialize(payments.transition(p.id, "failed", { failure_reason: reason }));
+    return payments.serialize(payments.reject(p, reason));
   });
 
   app.get<{ Params: { id: string } }>("/v1/payments/:id/slip", async (req, reply) => {

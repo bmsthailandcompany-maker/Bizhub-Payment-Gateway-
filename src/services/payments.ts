@@ -116,7 +116,7 @@ export class PaymentService {
   }
 
   list(
-    filter: { merchantId?: string; livemode?: boolean; status?: string; reference?: string },
+    filter: { merchantId?: string; livemode?: boolean; status?: string; reference?: string; search?: string },
     limit = 50,
     startingAfter?: string,
   ): PaymentRow[] {
@@ -126,6 +126,11 @@ export class PaymentService {
     if (filter.livemode !== undefined) (where.push("livemode = ?"), args.push(filter.livemode ? 1 : 0));
     if (filter.status) (where.push("status = ?"), args.push(filter.status));
     if (filter.reference) (where.push("reference = ?"), args.push(filter.reference));
+    if (filter.search) {
+      const like = `%${filter.search.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+      where.push("(id = ? OR reference LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
+      args.push(filter.search, like, like);
+    }
     if (startingAfter) {
       const cursor = this.get(startingAfter);
       if (cursor) (where.push("(created_at, id) < (?, ?)"), args.push(cursor.created_at, cursor.id));
@@ -238,6 +243,62 @@ export class PaymentService {
       this.webhooks.emit(payment.merchant_id, `payment.${to}`, id, this.serialize(payment));
       return payment;
     });
+  }
+
+  /** Merchant confirms money arrived for a PromptPay / bank transfer payment. */
+  approve(p: PaymentRow): PaymentRow {
+    if (p.method === "card") throw new PaymentError(400, "invalid_method", "Card payments are confirmed by the card provider");
+    return this.transition(p.id, "succeeded");
+  }
+
+  /** Merchant rejects a slip that is waiting for review. */
+  reject(p: PaymentRow, reason: string): PaymentRow {
+    if (p.status !== "awaiting_review") {
+      throw new PaymentError(409, "invalid_state", "Only payments awaiting review can be rejected");
+    }
+    return this.transition(p.id, "failed", { failure_reason: reason });
+  }
+
+  /** Headline numbers and daily sales (Asia/Bangkok days) for a merchant's dashboard. */
+  summary(merchantId: string, livemode: boolean, days = 14) {
+    const BKK_OFFSET_MS = 7 * 3600_000;
+    const dayKey = (t: number) => new Date(t + BKK_OFFSET_MS).toISOString().slice(0, 10);
+    const todayStart = Date.parse(dayKey(Date.now()) + "T00:00:00Z") - BKK_OFFSET_MS;
+    const since = new Date(todayStart - (days - 1) * 86400_000).toISOString();
+    const mode = livemode ? 1 : 0;
+
+    const paid = this.db
+      .prepare(
+        "SELECT amount, paid_at FROM payments WHERE merchant_id = ? AND livemode = ? AND status = 'succeeded' AND paid_at >= ?",
+      )
+      .all(merchantId, mode, since) as { amount: number; paid_at: string }[];
+    const daily = new Map<string, { amount: number; count: number }>();
+    for (let i = days - 1; i >= 0; i--) daily.set(dayKey(todayStart - i * 86400_000), { amount: 0, count: 0 });
+    for (const r of paid) {
+      const d = daily.get(dayKey(Date.parse(r.paid_at)));
+      if (d) (d.amount += r.amount), d.count++;
+    }
+
+    const counts = Object.fromEntries(
+      (
+        this.db
+          .prepare("SELECT status, COUNT(*) AS n FROM payments WHERE merchant_id = ? AND livemode = ? GROUP BY status")
+          .all(merchantId, mode) as { status: string; n: number }[]
+      ).map((r) => [r.status, r.n]),
+    );
+    const today = daily.get(dayKey(Date.now()))!;
+    const series = [...daily].map(([date, v]) => ({ date, ...v }));
+    return {
+      today: { amount: today.amount, count: today.count },
+      period: {
+        days,
+        amount: series.reduce((a, d) => a + d.amount, 0),
+        count: series.reduce((a, d) => a + d.count, 0),
+      },
+      awaiting_review: counts.awaiting_review ?? 0,
+      pending: counts.pending ?? 0,
+      daily: series,
+    };
   }
 
   emitEvent(p: PaymentRow, type: string): void {

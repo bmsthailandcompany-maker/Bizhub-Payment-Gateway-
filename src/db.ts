@@ -73,6 +73,15 @@ CREATE TABLE IF NOT EXISTS slip_checks (
 );
 CREATE INDEX IF NOT EXISTS slip_checks_payment_idx ON slip_checks(payment_id, created_at);
 
+CREATE TABLE IF NOT EXISTS dashboard_sessions (
+  token_hash TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  api_key_id TEXT NOT NULL REFERENCES api_keys(id),
+  livemode INTEGER NOT NULL,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   merchant_id TEXT NOT NULL,
   key TEXT NOT NULL,

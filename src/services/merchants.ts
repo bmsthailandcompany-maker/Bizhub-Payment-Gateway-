@@ -127,15 +127,48 @@ export class MerchantService {
   }
 
   /** Resolves a secret key to its merchant; returns undefined for unknown, revoked or inactive. */
-  authenticate(secretKey: string): { merchant: MerchantRow; livemode: boolean } | undefined {
+  authenticate(secretKey: string): { merchant: MerchantRow; livemode: boolean; keyId: string } | undefined {
     const row = this.db
       .prepare(
-        `SELECT k.livemode, m.* FROM api_keys k JOIN merchants m ON m.id = k.merchant_id
+        `SELECT k.livemode, k.id AS key_id, m.* FROM api_keys k JOIN merchants m ON m.id = k.merchant_id
          WHERE k.key_hash = ? AND k.revoked_at IS NULL AND m.active = 1`,
       )
-      .get(sha256(secretKey)) as (MerchantRow & { livemode: number }) | undefined;
+      .get(sha256(secretKey)) as (MerchantRow & { livemode: number; key_id: string }) | undefined;
     if (!row) return undefined;
-    const { livemode, ...merchant } = row;
-    return { merchant, livemode: livemode === 1 };
+    const { livemode, key_id, ...merchant } = row;
+    return { merchant, livemode: livemode === 1, keyId: key_id };
+  }
+
+  /** Starts a dashboard session; the browser only ever holds the opaque session token. */
+  createSession(secretKey: string, ttlMs = 12 * 3600_000): { token: string; livemode: boolean } | undefined {
+    const auth = this.authenticate(secretKey);
+    if (!auth) return undefined;
+    const token = randomToken(48);
+    this.db
+      .prepare(
+        "INSERT INTO dashboard_sessions (token_hash, merchant_id, api_key_id, livemode, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      )
+      .run(sha256(token), auth.merchant.id, auth.keyId, auth.livemode ? 1 : 0, new Date(Date.now() + ttlMs).toISOString(), now());
+    this.db.prepare("DELETE FROM dashboard_sessions WHERE expires_at < ?").run(now());
+    return { token, livemode: auth.livemode };
+  }
+
+  /** Resolves a session; it dies with its API key (rotation) or when the merchant is deactivated. */
+  authenticateSession(token: string): { merchant: MerchantRow; livemode: boolean } | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT s.livemode AS session_livemode, m.* FROM dashboard_sessions s
+         JOIN api_keys k ON k.id = s.api_key_id
+         JOIN merchants m ON m.id = s.merchant_id
+         WHERE s.token_hash = ? AND s.expires_at > ? AND k.revoked_at IS NULL AND m.active = 1`,
+      )
+      .get(sha256(token), now()) as (MerchantRow & { session_livemode: number }) | undefined;
+    if (!row) return undefined;
+    const { session_livemode, ...merchant } = row;
+    return { merchant, livemode: session_livemode === 1 };
+  }
+
+  endSession(token: string): void {
+    this.db.prepare("DELETE FROM dashboard_sessions WHERE token_hash = ?").run(sha256(token));
   }
 }
