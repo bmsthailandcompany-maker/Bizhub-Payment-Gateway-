@@ -31,6 +31,13 @@ export interface PaymentRow {
   failure_reason: string | null;
   slip_path: string | null;
   slip_mime: string | null;
+  slip_attempts: number;
+  verify_status: "verifying" | "verified" | "rejected" | "needs_review" | null;
+  verify_reason: string | null;
+  verify_started_at: string | null;
+  verify_retry_at: string | null;
+  verify_retries: number;
+  slip_trans_ref: string | null;
   expires_at: string;
   paid_at: string | null;
   created_at: string;
@@ -69,6 +76,13 @@ const TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
 };
 
 const CHARGE_IN_FLIGHT = "__charging__";
+
+/** A slip check that has been "verifying" longer than this is assumed to have crashed. */
+export const VERIFICATION_LOCK_MS = 2 * 60_000;
+
+export function verificationLockCutoff(): string {
+  return new Date(Date.now() - VERIFICATION_LOCK_MS).toISOString();
+}
 
 export const SLIP_MIME_TYPES: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -192,19 +206,30 @@ export class PaymentService {
    * Atomically moves a payment to `to` if its current status allows it, then emits
    * `payment.<to>`. Returns the updated payment, or throws if the transition is invalid.
    */
-  transition(id: string, to: PaymentStatus, extra: { failure_reason?: string; provider_ref?: string } = {}): PaymentRow {
+  transition(
+    id: string,
+    to: PaymentStatus,
+    extra: { failure_reason?: string; provider_ref?: string; before?: () => void } = {},
+  ): PaymentRow {
     return tx(this.db, () => {
+      extra.before?.();
       const from = TRANSITIONS[to];
       const ts = now();
+      // A payment whose slip is being checked right now must not expire underneath the check.
+      const guard =
+        to === "expired"
+          ? " AND (verify_status IS NOT 'verifying' OR verify_started_at < ?)"
+          : "";
+      const guardArgs = to === "expired" ? [verificationLockCutoff()] : [];
       const result = this.db
         .prepare(
           `UPDATE payments SET status = ?, updated_at = ?,
              paid_at = CASE WHEN ? = 'succeeded' THEN ? ELSE paid_at END,
              failure_reason = CASE WHEN ? = 'succeeded' THEN NULL ELSE COALESCE(?, failure_reason) END,
              provider_ref = COALESCE(?, provider_ref)
-           WHERE id = ? AND status IN (${from.map(() => "?").join(",")})`,
+           WHERE id = ? AND status IN (${from.map(() => "?").join(",")})${guard}`,
         )
-        .run(to, ts, to, ts, to, extra.failure_reason ?? null, extra.provider_ref ?? null, id, ...from);
+        .run(to, ts, to, ts, to, extra.failure_reason ?? null, extra.provider_ref ?? null, id, ...from, ...guardArgs);
       const payment = this.get(id);
       if (!payment) throw new PaymentError(404, "not_found", "Payment not found");
       if (result.changes === 0) {
@@ -213,6 +238,10 @@ export class PaymentService {
       this.webhooks.emit(payment.merchant_id, `payment.${to}`, id, this.serialize(payment));
       return payment;
     });
+  }
+
+  emitEvent(p: PaymentRow, type: string): void {
+    this.webhooks.emit(p.merchant_id, type, p.id, this.serialize(p));
   }
 
   /** Marks a pending payment expired if its time is up. Returns the fresh row. */
@@ -234,21 +263,6 @@ export class PaymentService {
       .all(now()) as unknown as PaymentRow[];
     for (const p of due) this.expireIfDue(p);
     return due.length;
-  }
-
-  /** Stores a transfer slip uploaded from the checkout page and queues it for merchant review. */
-  attachSlip(id: string, mime: string, data: Buffer): PaymentRow {
-    const p = this.expireIfDue(this.requireCheckout(id));
-    if (p.method === "card") throw new PaymentError(400, "invalid_method", "Slips are only for PromptPay and bank transfer");
-    if (p.status !== "pending") throw new PaymentError(409, "invalid_state", `Payment is already ${p.status}`);
-    const ext = SLIP_MIME_TYPES[mime];
-    if (!ext) throw new PaymentError(400, "invalid_file", "Slip must be a JPEG, PNG, WebP or PDF file");
-
-    fs.mkdirSync(this.slipDir, { recursive: true });
-    const file = `${p.id}${ext}`;
-    fs.writeFileSync(path.join(this.slipDir, file), data);
-    this.db.prepare("UPDATE payments SET slip_path = ?, slip_mime = ? WHERE id = ?").run(file, mime, p.id);
-    return this.transition(p.id, "awaiting_review");
   }
 
   readSlip(p: PaymentRow): { mime: string; data: Buffer } | undefined {
@@ -337,6 +351,16 @@ export class PaymentService {
         ? { payload: p.promptpay_payload, qr_image_url: `${base}/checkout/${p.id}/qr.png` }
         : null,
       has_slip: p.slip_path !== null,
+      slip_verification:
+        p.verify_status && p.verify_status !== "verifying"
+          ? {
+              status: p.verify_status,
+              reason: p.verify_reason,
+              trans_ref: p.slip_trans_ref,
+              attempts: p.slip_attempts,
+              next_retry_at: p.verify_retry_at,
+            }
+          : null,
       failure_reason: p.failure_reason,
       expires_at: p.expires_at,
       paid_at: p.paid_at,

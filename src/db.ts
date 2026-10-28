@@ -53,6 +53,26 @@ CREATE TABLE IF NOT EXISTS payments (
 CREATE INDEX IF NOT EXISTS payments_merchant_idx ON payments(merchant_id, created_at);
 CREATE INDEX IF NOT EXISTS payments_status_idx ON payments(status, expires_at);
 
+-- A bank transaction can pay for at most one payment.
+CREATE TABLE IF NOT EXISTS used_slips (
+  trans_ref TEXT PRIMARY KEY,
+  payment_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS slip_checks (
+  id TEXT PRIMARY KEY,
+  payment_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  reason TEXT,
+  trans_ref TEXT,
+  amount INTEGER,
+  raw TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS slip_checks_payment_idx ON slip_checks(payment_id, created_at);
+
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   merchant_id TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -96,7 +116,27 @@ export function openDb(dataDir: string | ":memory:"): Db {
   const db = new DatabaseSync(file);
   db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
   db.exec(SCHEMA);
+  migrate(db);
   return db;
+}
+
+/** Columns added after the first release; added in place to databases created before them. */
+const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
+  ["payments", "slip_attempts", "INTEGER NOT NULL DEFAULT 0"],
+  ["payments", "verify_status", "TEXT"],
+  ["payments", "verify_reason", "TEXT"],
+  ["payments", "verify_started_at", "TEXT"],
+  ["payments", "verify_retry_at", "TEXT"],
+  ["payments", "verify_retries", "INTEGER NOT NULL DEFAULT 0"],
+  ["payments", "slip_trans_ref", "TEXT"],
+];
+
+function migrate(db: Db): void {
+  for (const [table, column, definition] of ADDED_COLUMNS) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS payments_verify_retry_idx ON payments(status, verify_retry_at)");
 }
 
 export function now(): string {

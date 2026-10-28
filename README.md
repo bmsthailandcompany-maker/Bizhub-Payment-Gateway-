@@ -4,9 +4,9 @@
 
 | ช่องทาง | วิธีทำงาน | ใครยืนยันยอด |
 |---|---|---|
-| **PromptPay QR** | สร้าง QR ตามยอดเงิน (มาตรฐาน EMVCo / Thai QR) เงินเข้าพร้อมเพย์ของร้านโดยตรง | ร้านค้า (ดูสลิป/ยอดเข้า แล้วกด approve) |
+| **PromptPay QR** | สร้าง QR ตามยอดเงิน (มาตรฐาน EMVCo / Thai QR) เงินเข้าพร้อมเพย์ของร้านโดยตรง ลูกค้าแนบสลิปหลังโอน | **อัตโนมัติ** ตรวจสลิปกับธนาคาร |
 | **บัตรเครดิต/เดบิต** | ข้อมูลบัตรถูกแปลงเป็น token ในเบราว์เซอร์ แล้วตัดเงินผ่าน Omise (Opn Payments) รองรับ 3-D Secure | อัตโนมัติจากผู้ให้บริการบัตร |
-| **โอนเงิน + แนบสลิป** | แสดงเลขบัญชีร้าน ลูกค้าโอนแล้วอัปโหลดสลิป | ร้านค้า (approve / reject) |
+| **โอนเงิน + แนบสลิป** | แสดงเลขบัญชีร้าน ลูกค้าโอนแล้วอัปโหลดสลิป | **อัตโนมัติ** ตรวจสลิปกับธนาคาร |
 
 ทุกการเปลี่ยนสถานะจะส่ง **webhook ที่เซ็นด้วย HMAC-SHA256** ไปยังร้านค้า พร้อม retry อัตโนมัติ
 
@@ -39,6 +39,38 @@ curl -X POST http://localhost:3000/admin/merchants \
 
 ผลลัพธ์จะมี `test_secret_key`, `live_secret_key` และ `webhook_secret` ซึ่ง**แสดงครั้งเดียว** ให้ส่งให้ร้านค้าเก็บไว้
 (หรือใช้ `npm run create-merchant -- --name "..." --promptpay 0812345678`)
+
+## ยืนยันสลิปอัตโนมัติ
+
+เมื่อลูกค้าแนบสลิป ระบบส่งภาพไปให้ผู้ให้บริการตรวจสลิป ([EasySlip](https://easyslip.com) หรือ [SlipOK](https://slipok.com))
+อ่าน QR บนสลิปแล้วเช็กกับเครือข่ายธนาคารว่ารายการโอนมีอยู่จริง จากนั้นเกตเวย์ตรวจซ้ำเองทุกข้อก่อนตัดสินว่าจ่ายแล้ว:
+
+| ตรวจ | ไม่ผ่านแล้วเกิดอะไร |
+|---|---|
+| รายการโอนมีอยู่จริงที่ธนาคาร (กันสลิปปลอม/ตัดต่อ) | ปฏิเสธ ลูกค้าแนบใหม่ได้ |
+| ยอดเงินตรงกับยอดที่ต้องชำระ | ยอดขาด → ปฏิเสธ · ยอดเกิน → ส่งให้ร้านค้าตรวจ |
+| บัญชีผู้รับเป็นของร้านนี้ (เทียบพร้อมเพย์/เลขบัญชีที่ธนาคารปิดบางหลัก) | ไม่ตรง → ปฏิเสธ · อ่านไม่ได้ → ส่งให้ร้านค้าตรวจ |
+| เวลาโอนไม่เก่ากว่าตอนสร้างรายการ (กันเอาสลิปเก่ามาใช้) | ปฏิเสธ |
+| สลิปนี้ยังไม่เคยใช้จ่ายรายการอื่น (ทุกร้านในเกตเวย์) | ปฏิเสธ |
+
+ผลลัพธ์มี 3 แบบ:
+
+- **verified**: รายการเป็น `succeeded` ทันที ลูกค้าเห็น "ชำระเงินสำเร็จ" ภายในไม่กี่วินาที และร้านค้าได้ webhook `payment.succeeded`
+- **rejected**: รายการยังเป็น `pending` ลูกค้าเห็นเหตุผลเป็นภาษาไทยแล้วแนบใหม่ได้ (ไม่เกิน 5 ครั้งต่อรายการ) ร้านค้าได้ webhook `payment.slip_rejected`
+- **needs_review**: เช่น ธนาคารยังไม่อัปเดตรายการ หรือผู้ให้บริการล่ม รายการจะเป็น `awaiting_review` และระบบลองตรวจซ้ำเองเป็นระยะ (สูงสุด 6 ครั้งใน ~4 ชั่วโมง) ถ้ายังตัดสินไม่ได้ ร้านค้า approve/reject เองได้
+
+ตั้งค่าใน `.env`:
+
+```bash
+SLIP_VERIFIER=easyslip          # หรือ slipok
+EASYSLIP_API_KEY=...            # ถ้าใช้ EasySlip
+SLIPOK_BRANCH_ID=... SLIPOK_API_KEY=...   # ถ้าใช้ SlipOK
+```
+
+- โหมดทดสอบ (`sk_test_`) ใช้ตัวจำลองเสมอ ภาพใดก็ผ่านด้วยยอดที่ถูกต้อง จึงลองทั้ง flow ได้โดยไม่เสียโควต้า
+- ถ้ายังไม่ตั้งค่าผู้ให้บริการ สลิปโหมด live จะรอร้านค้ายืนยันเองเหมือนเดิม
+- สลิปไฟล์ PDF ตรวจอัตโนมัติไม่ได้ ระบบจะส่งให้ร้านค้าตรวจ
+- ประวัติการตรวจทุกครั้งดูได้ที่ `GET /v1/payments/:id/slip-checks`
 
 ## API สำหรับร้านค้า
 
@@ -76,9 +108,10 @@ curl -X POST http://localhost:3000/v1/payments \
 | `POST` | `/v1/payments` | สร้างรายการ (`method`: `promptpay` / `card` / `bank_transfer`, `expires_in` เป็นวินาที) |
 | `GET` | `/v1/payments` | รายการทั้งหมด (`status`, `reference`, `limit`, `starting_after`) |
 | `GET` | `/v1/payments/:id` | ดูรายการ |
-| `POST` | `/v1/payments/:id/approve` | ยืนยันว่าได้รับเงินแล้ว (PromptPay / โอนเงิน) |
+| `POST` | `/v1/payments/:id/approve` | ยืนยันด้วยมือ (กรณีระบบส่งให้ตรวจ) |
 | `POST` | `/v1/payments/:id/reject` | ปฏิเสธสลิป `{"reason": "amount_mismatch"}` |
 | `GET` | `/v1/payments/:id/slip` | ดาวน์โหลดสลิปที่ลูกค้าแนบ |
+| `GET` | `/v1/payments/:id/slip-checks` | ประวัติการตรวจสลิปอัตโนมัติ |
 | `POST` | `/v1/payments/:id/cancel` | ยกเลิกรายการที่ยังไม่จ่าย |
 | `POST` | `/v1/payments/:id/simulate` | (เฉพาะ test key) จำลองผล `{"status": "succeeded"}` |
 | `GET` | `/v1/merchant` | ข้อมูลร้าน + `webhook_secret` |
@@ -86,9 +119,10 @@ curl -X POST http://localhost:3000/v1/payments \
 ### สถานะ
 
 ```
-pending ──(แนบสลิป)──▶ awaiting_review ──approve──▶ succeeded
-   │                         └──────reject─────▶ failed
-   ├──(บัตรผ่าน / approve)──▶ succeeded
+pending ──(สลิปผ่าน / บัตรผ่าน)──▶ succeeded
+   │──(สลิปไม่ผ่าน)──▶ pending (แนบใหม่ได้)
+   ├──(ตรวจยังไม่ได้)──▶ awaiting_review ──(ตรวจซ้ำผ่าน / approve)──▶ succeeded
+   │                              └──────reject─────▶ failed
    ├──(เลยเวลา)──▶ expired
    └──(cancel)──▶ cancelled
 ```
@@ -97,7 +131,7 @@ pending ──(แนบสลิป)──▶ awaiting_review ──approve─�
 
 ## Webhook
 
-เหตุการณ์: `payment.created`, `payment.awaiting_review`, `payment.succeeded`, `payment.failed`, `payment.expired`, `payment.cancelled`
+เหตุการณ์: `payment.created`, `payment.awaiting_review`, `payment.slip_rejected`, `payment.succeeded`, `payment.failed`, `payment.expired`, `payment.cancelled`
 
 ```json
 { "id": "evt_...", "object": "event", "type": "payment.succeeded", "created_at": "...", "data": { "...": "payment" } }
@@ -151,7 +185,8 @@ src/
   promptpay.ts           สร้าง payload PromptPay QR + CRC16
   db.ts                  SQLite schema
   providers/card.ts      Mock + Omise card provider
-  services/              merchants, payments (state machine), webhooks
+  services/              merchants, payments (state machine), slips (ตรวจสลิป), webhooks
+  slip/                  ตัวเชื่อม EasySlip / SlipOK + กฎตรวจสลิป
   routes/                merchant API, admin API, หน้า checkout
 test/                    ชุดทดสอบ (node:test)
 ```
@@ -161,5 +196,6 @@ test/                    ชุดทดสอบ (node:test)
 - รันหลัง HTTPS (reverse proxy เช่น Nginx/Caddy) และตั้ง `PUBLIC_BASE_URL` เป็นโดเมนจริง
 - สำรองโฟลเดอร์ `DATA_DIR` (ฐานข้อมูล + สลิป) สม่ำเสมอ ถ้าปริมาณสูงควรย้ายไป PostgreSQL และเก็บสลิปบน object storage
 - ใส่ rate limit สำหรับ `/checkout/*` ที่ reverse proxy
-- PromptPay และการโอนเงินยังยืนยันด้วยมือ หากต้องการยืนยันอัตโนมัติ ต่อยอดได้ด้วย API ตรวจสลิป (เช่น SlipOK, EasySlip) หรือ API แจ้งยอดเข้าของธนาคาร
+- สมัครผู้ให้บริการตรวจสลิปและตั้ง `SLIP_VERIFIER` เพื่อเปิดการยืนยันอัตโนมัติในโหมด live
+- ลูกค้าที่จ่าย PromptPay แล้วไม่แนบสลิป ระบบจะยังไม่รู้ว่าจ่ายแล้ว ถ้าต้องการยืนยันโดยไม่ต้องใช้สลิปเลย ต้องใช้ API แจ้งยอดเข้าของธนาคาร (เช่น KBank / SCB Open API) ซึ่งต้องทำสัญญากับธนาคาร
 - การรับเงินแทนร้านค้า (พักเงินไว้ที่เกตเวย์) อาจต้องได้รับอนุญาตจาก ธปท. ระบบนี้จึงออกแบบให้เงินเข้าบัญชีร้านค้าโดยตรง

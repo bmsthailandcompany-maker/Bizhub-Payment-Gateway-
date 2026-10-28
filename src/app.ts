@@ -10,12 +10,18 @@ import { checkoutRoutes, MAX_SLIP_BYTES } from "./routes/checkout.ts";
 import { merchantApiRoutes } from "./routes/merchant-api.ts";
 import { MerchantService } from "./services/merchants.ts";
 import { PaymentError, PaymentService } from "./services/payments.ts";
+import { SlipService } from "./services/slips.ts";
 import { WebhookService } from "./services/webhooks.ts";
+import { EasySlipVerifier } from "./slip/easyslip.ts";
+import { MockSlipVerifier } from "./slip/mock.ts";
+import { SlipOkVerifier } from "./slip/slipok.ts";
+import type { SlipVerifier } from "./slip/types.ts";
 
 export interface AppDeps {
   db?: Db;
   fetchImpl?: typeof fetch;
   liveCardProvider?: CardProvider | null;
+  liveSlipVerifier?: SlipVerifier | null;
   logger?: boolean;
 }
 
@@ -25,6 +31,7 @@ export interface Gateway {
   merchants: MerchantService;
   payments: PaymentService;
   webhooks: WebhookService;
+  slips: SlipService;
   /** Runs one round of background work (expiry sweep + webhook delivery). */
   runJobs(): Promise<void>;
 }
@@ -39,9 +46,20 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
         ? new OmiseCardProvider(config.omise.secretKey, fetchImpl)
         : null;
 
+  const sv = config.slipVerifier;
+  const liveSlip =
+    deps.liveSlipVerifier !== undefined
+      ? deps.liveSlipVerifier
+      : sv?.provider === "easyslip"
+        ? new EasySlipVerifier(sv.apiKey, sv.baseUrl, fetchImpl)
+        : sv?.provider === "slipok"
+          ? new SlipOkVerifier(sv.branchId, sv.apiKey, fetchImpl)
+          : null;
+
   const webhooks = new WebhookService(db, fetchImpl);
   const merchants = new MerchantService(db);
   const payments = new PaymentService(db, config, webhooks, { test: new MockCardProvider(), live: liveCard });
+  const slips = new SlipService(db, payments, merchants, { test: new MockSlipVerifier(), live: liveSlip });
 
   const app = Fastify({ logger: deps.logger ?? true, bodyLimit: 1024 * 1024, trustProxy: true });
   await app.register(multipart, { limits: { fileSize: MAX_SLIP_BYTES, files: 1, fields: 5 } });
@@ -68,14 +86,15 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   });
 
   app.get("/health", async () => ({ ok: true }));
-  await app.register(merchantApiRoutes, { merchants, payments });
+  await app.register(merchantApiRoutes, { merchants, payments, slips });
   await app.register(adminRoutes, { db, adminToken: config.adminToken, merchants, payments });
-  await app.register(checkoutRoutes, { merchants, payments, omisePublicKey: config.omise?.publicKey ?? null });
+  await app.register(checkoutRoutes, { merchants, payments, slips, omisePublicKey: config.omise?.publicKey ?? null });
 
   const runJobs = async () => {
     payments.sweepExpired();
+    await slips.retryDue();
     await webhooks.processDue();
   };
 
-  return { app, db, merchants, payments, webhooks, runJobs };
+  return { app, db, merchants, payments, webhooks, slips, runJobs };
 }

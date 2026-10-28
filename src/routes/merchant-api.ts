@@ -3,14 +3,15 @@ import type { MerchantService } from "../services/merchants.ts";
 import { serializeMerchant } from "../services/merchants.ts";
 import type { PaymentService } from "../services/payments.ts";
 import { PaymentError } from "../services/payments.ts";
+import type { SlipService } from "../services/slips.ts";
 import { merchantAuth } from "./auth.ts";
 import { createPaymentSchema, listPaymentsQuery, rejectSchema, simulateSchema } from "./schemas.ts";
 
 export async function merchantApiRoutes(
   app: FastifyInstance,
-  opts: { merchants: MerchantService; payments: PaymentService },
+  opts: { merchants: MerchantService; payments: PaymentService; slips: SlipService },
 ) {
-  const { merchants, payments } = opts;
+  const { merchants, payments, slips } = opts;
   app.addHook("preHandler", merchantAuth(merchants));
 
   const own = (req: { merchant?: { id: string }; livemode?: boolean }, id: string) =>
@@ -73,6 +74,11 @@ export async function merchantApiRoutes(
     if (!slip) throw new PaymentError(404, "not_found", "No slip uploaded for this payment");
     return reply.type(slip.mime).header("Cache-Control", "private, no-store").send(slip.data);
   });
+
+  app.get<{ Params: { id: string } }>("/v1/payments/:id/slip-checks", async (req) => ({
+    object: "list",
+    data: slips.history(own(req, req.params.id).id),
+  }));
 
   app.post<{ Params: { id: string } }>("/v1/payments/:id/simulate", async (req) => {
     if (req.livemode) throw new PaymentError(400, "test_mode_only", "Simulation is only available with test keys");

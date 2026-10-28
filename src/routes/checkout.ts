@@ -3,6 +3,7 @@ import type { FastifyInstance } from "fastify";
 import QRCode from "qrcode";
 import type { MerchantService } from "../services/merchants.ts";
 import type { PaymentService } from "../services/payments.ts";
+import type { SlipService } from "../services/slips.ts";
 import { PaymentError } from "../services/payments.ts";
 import { renderCheckoutPage } from "./checkout-page.ts";
 import { cardChargeSchema } from "./schemas.ts";
@@ -12,9 +13,9 @@ export const MAX_SLIP_BYTES = 5 * 1024 * 1024;
 /** Public, customer-facing endpoints. The unguessable payment ID acts as the capability. */
 export async function checkoutRoutes(
   app: FastifyInstance,
-  opts: { merchants: MerchantService; payments: PaymentService; omisePublicKey: string | null },
+  opts: { merchants: MerchantService; payments: PaymentService; slips: SlipService; omisePublicKey: string | null },
 ) {
-  const { merchants, payments } = opts;
+  const { merchants, payments, slips } = opts;
 
   const load = (id: string) => {
     const p = payments.get(id);
@@ -67,8 +68,8 @@ export async function checkoutRoutes(
     const data = await file.toBuffer();
     if (file.file.truncated) throw new PaymentError(413, "file_too_large", "Slip must be 5 MB or smaller");
     if (!looksLike(file.mimetype, data)) throw new PaymentError(400, "invalid_file", "File content does not match its type");
-    const p = payments.attachSlip(req.params.id, file.mimetype, data);
-    return { id: p.id, status: p.status };
+    const { payment, result } = await slips.submit(req.params.id, file.mimetype, data);
+    return { id: payment.id, status: payment.status, verification: result };
   });
 
   app.post<{ Params: { id: string } }>("/checkout/:id/card", async (req) => {

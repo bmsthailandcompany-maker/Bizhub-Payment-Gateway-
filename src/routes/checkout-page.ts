@@ -28,11 +28,12 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
     omisePublicKey: live ? omisePublicKey : null,
   };
 
-  const slipForm = (required: boolean) => `
+  const slipForm = (prompt: string) => `
     <form id="slip-form" class="card-box">
-      <label for="slip">${required ? "แนบสลิปการโอนเงิน" : "โอนแล้ว? แนบสลิปเพื่อให้ร้านค้ายืนยันเร็วขึ้น"}</label>
+      <label for="slip">${prompt}</label>
       <input id="slip" name="slip" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required>
-      <button type="submit">ส่งสลิป</button>
+      <button type="submit">ส่งสลิปเพื่อยืนยัน</button>
+      <p class="small">ระบบตรวจสอบสลิปกับธนาคารอัตโนมัติภายในไม่กี่วินาที</p>
     </form>`;
 
   let methodSection = "";
@@ -42,7 +43,7 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
         <p class="hint">สแกน QR ด้วยแอปธนาคารใดก็ได้ ยอดเงินจะถูกกรอกให้อัตโนมัติ</p>
         <img class="qr" src="/checkout/${esc(p.id)}/qr.png" alt="PromptPay QR สำหรับชำระ ${baht(p.amount)} บาท" width="280" height="280">
         <p class="small">PromptPay · ${esc(m.name)}</p>
-        ${slipForm(false)}
+        ${slipForm("โอนแล้ว แนบสลิปเพื่อยืนยันการชำระเงิน")}
       </section>`;
   } else if (p.method === "bank_transfer") {
     methodSection = `
@@ -53,7 +54,7 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
           <dt>เลขที่บัญชี</dt><dd><code id="acct">${esc(m.bank_account_no ?? "-")}</code> <button type="button" id="copy-acct" class="link">คัดลอก</button></dd>
           <dt>ชื่อบัญชี</dt><dd>${esc(m.bank_account_name ?? "-")}</dd>
         </dl>
-        ${slipForm(true)}
+        ${slipForm("แนบสลิปการโอนเงิน")}
       </section>`;
   } else {
     methodSection = `
@@ -119,7 +120,7 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
     <hr>
     ${methodSection}
     <p class="error" id="error" role="alert"></p>
-    <section class="result" data-when="awaiting_review"><h2>ได้รับสลิปแล้ว</h2><p>ร้านค้ากำลังตรวจสอบการชำระเงิน หน้านี้จะอัปเดตอัตโนมัติ</p></section>
+    <section class="result" data-when="awaiting_review"><h2>ได้รับสลิปแล้ว</h2><p>กำลังรอยืนยันรายการกับธนาคาร/ร้านค้า หน้านี้จะอัปเดตอัตโนมัติ ไม่ต้องโอนซ้ำ</p></section>
     <section class="result" data-when="succeeded"><h2 class="ok">ชำระเงินสำเร็จ</h2><p id="redirect-note">ขอบคุณที่ใช้บริการ</p></section>
     <section class="result" data-when="failed"><h2 class="bad">การชำระเงินไม่สำเร็จ</h2><p>กรุณาติดต่อร้านค้า</p></section>
     <section class="result" data-when="expired"><h2 class="bad">รายการหมดอายุแล้ว</h2><p>กรุณากลับไปสร้างรายการใหม่ที่ร้านค้า</p></section>
@@ -171,6 +172,22 @@ ${state.omisePublicKey ? `<script nonce="${nonce}" src="https://cdn.omise.co/omi
     return j;
   }
 
+  const REJECTED = {
+    amount_too_low: "ยอดเงินในสลิปน้อยกว่ายอดที่ต้องชำระ",
+    receiver_mismatch: "บัญชีผู้รับในสลิปไม่ใช่บัญชีของร้านนี้",
+    slip_older_than_payment: "สลิปนี้เป็นรายการเก่า กรุณาแนบสลิปของการโอนครั้งนี้",
+    duplicate_slip: "สลิปนี้ถูกใช้ชำระไปแล้ว",
+    transfer_not_found: "ไม่พบรายการโอนนี้ที่ธนาคาร กรุณาตรวจสอบสลิป",
+    qr_not_found: "ไม่พบ QR บนสลิป กรุณาแนบภาพสลิปที่ชัดและไม่ถูกครอป",
+    not_a_payment_slip: "ไฟล์นี้ไม่ใช่สลิปโอนเงิน",
+    invalid_image: "ไฟล์ภาพไม่ถูกต้อง กรุณาแนบภาพสลิปใหม่",
+  };
+  const ERRORS = {
+    too_many_attempts: "แนบสลิปเกินจำนวนครั้งที่กำหนด กรุณาติดต่อร้านค้า",
+    verification_in_progress: "กำลังตรวจสอบสลิปอยู่ กรุณารอสักครู่",
+    file_too_large: "ไฟล์ใหญ่เกิน 5 MB",
+  };
+
   const slipForm = $("slip-form");
   if (slipForm) slipForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -179,7 +196,8 @@ ${state.omisePublicKey ? `<script nonce="${nonce}" src="https://cdn.omise.co/omi
       const fd = new FormData(); fd.append("slip", $("slip").files[0]);
       const res = await fetch("/checkout/" + S.id + "/slip", { method: "POST", body: fd });
       const j = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(j.error?.message || "อัปโหลดไม่สำเร็จ");
+      if (!res.ok) throw new Error(ERRORS[j.error?.code] || j.error?.message || "อัปโหลดไม่สำเร็จ");
+      if (j.verification?.outcome === "rejected") throw new Error(REJECTED[j.verification.reason] || "ตรวจสอบสลิปไม่ผ่าน กรุณาลองใหม่");
       render(j.status);
     } catch (err) { showError(err.message); } finally { btn.disabled = false; }
   });
