@@ -7,7 +7,12 @@ import { openDb } from "./db.ts";
 import { type CardProvider, MockCardProvider, OmiseCardProvider } from "./providers/card.ts";
 import { adminRoutes } from "./routes/admin.ts";
 import { checkoutRoutes, MAX_SLIP_BYTES } from "./routes/checkout.ts";
+import { adminConsoleRoutes } from "./routes/admin-console.ts";
+import { assetRoutes } from "./routes/assets.ts";
 import { dashboardRoutes } from "./routes/dashboard.ts";
+import { AuditService } from "./services/audit.ts";
+import { LoginLimiter, SessionService } from "./services/sessions.ts";
+import { UserService } from "./services/users.ts";
 import { merchantApiRoutes } from "./routes/merchant-api.ts";
 import { MerchantService } from "./services/merchants.ts";
 import { PaymentError, PaymentService } from "./services/payments.ts";
@@ -33,6 +38,8 @@ export interface Gateway {
   payments: PaymentService;
   webhooks: WebhookService;
   slips: SlipService;
+  users: UserService;
+  audit: AuditService;
   /** Runs one round of background work (expiry sweep + webhook delivery). */
   runJobs(): Promise<void>;
 }
@@ -61,6 +68,10 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const merchants = new MerchantService(db);
   const payments = new PaymentService(db, config, webhooks, { test: new MockCardProvider(), live: liveCard });
   const slips = new SlipService(db, payments, merchants, { test: new MockSlipVerifier(), live: liveSlip });
+  const users = new UserService(db);
+  const sessions = new SessionService(db, config.adminToken);
+  const audit = new AuditService(db);
+  const limiter = new LoginLimiter();
 
   const app = Fastify({ logger: deps.logger ?? true, bodyLimit: 1024 * 1024, trustProxy: true });
   await app.register(multipart, { limits: { fileSize: MAX_SLIP_BYTES, files: 1, fields: 5 } });
@@ -90,7 +101,9 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   app.get("/", async (_req, reply) => reply.redirect("/dashboard"));
   await app.register(merchantApiRoutes, { merchants, payments, slips });
   await app.register(adminRoutes, { db, adminToken: config.adminToken, merchants, payments });
-  await app.register(dashboardRoutes, { db, merchants, payments, slips });
+  await app.register(assetRoutes);
+  await app.register(dashboardRoutes, { db, merchants, payments, slips, users, sessions, audit, limiter });
+  await app.register(adminConsoleRoutes, { db, adminToken: config.adminToken, merchants, payments, slips, users, sessions, audit, limiter });
   await app.register(checkoutRoutes, { merchants, payments, slips, omisePublicKey: config.omise?.publicKey ?? null });
 
   const runJobs = async () => {
@@ -99,5 +112,5 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     await webhooks.processDue();
   };
 
-  return { app, db, merchants, payments, webhooks, slips, runJobs };
+  return { app, db, merchants, payments, webhooks, slips, users, audit, runJobs };
 }

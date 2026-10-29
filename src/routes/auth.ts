@@ -1,11 +1,16 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { safeEqual } from "../ids.ts";
 import type { MerchantRow, MerchantService } from "../services/merchants.ts";
+import type { Actor } from "../services/sessions.ts";
 
 declare module "fastify" {
   interface FastifyRequest {
     merchant?: MerchantRow;
     livemode?: boolean;
+    /** Set for cookie-session web requests. */
+    actor?: Actor;
+    sessionToken?: string;
+    permissions?: readonly string[];
   }
 }
 

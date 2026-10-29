@@ -13,7 +13,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "create-merchant": "tsx scripts/create-merchant.ts"
+    "create-merchant": "tsx scripts/create-merchant.ts",
+    "create-admin": "tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@fastify/multipart": "^9.4.0",

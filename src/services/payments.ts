@@ -55,6 +55,17 @@ export interface CreatePaymentInput {
   expires_in?: number;
 }
 
+export interface PaymentFilter {
+  merchantId?: string;
+  livemode?: boolean;
+  status?: string;
+  reference?: string;
+  search?: string;
+  /** ISO timestamps bounding created_at: from inclusive, to exclusive. */
+  from?: string;
+  to?: string;
+}
+
 export class PaymentError extends Error {
   constructor(
     public readonly statusCode: number,
@@ -115,22 +126,26 @@ export class PaymentService {
     return p;
   }
 
-  list(
-    filter: { merchantId?: string; livemode?: boolean; status?: string; reference?: string; search?: string },
-    limit = 50,
-    startingAfter?: string,
-  ): PaymentRow[] {
+  /** @param t table alias prefix such as "p." when the query joins other tables */
+  private where(filter: PaymentFilter, t = ""): { where: string[]; args: (string | number)[] } {
     const where: string[] = [];
     const args: (string | number)[] = [];
-    if (filter.merchantId) (where.push("merchant_id = ?"), args.push(filter.merchantId));
-    if (filter.livemode !== undefined) (where.push("livemode = ?"), args.push(filter.livemode ? 1 : 0));
-    if (filter.status) (where.push("status = ?"), args.push(filter.status));
-    if (filter.reference) (where.push("reference = ?"), args.push(filter.reference));
+    if (filter.from) (where.push(`${t}created_at >= ?`), args.push(filter.from));
+    if (filter.to) (where.push(`${t}created_at < ?`), args.push(filter.to));
+    if (filter.merchantId) (where.push(`${t}merchant_id = ?`), args.push(filter.merchantId));
+    if (filter.livemode !== undefined) (where.push(`${t}livemode = ?`), args.push(filter.livemode ? 1 : 0));
+    if (filter.status) (where.push(`${t}status = ?`), args.push(filter.status));
+    if (filter.reference) (where.push(`${t}reference = ?`), args.push(filter.reference));
     if (filter.search) {
       const like = `%${filter.search.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
-      where.push("(id = ? OR reference LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
+      where.push(`(${t}id = ? OR ${t}reference LIKE ? ESCAPE '\\' OR ${t}description LIKE ? ESCAPE '\\')`);
       args.push(filter.search, like, like);
     }
+    return { where, args };
+  }
+
+  list(filter: PaymentFilter, limit = 50, startingAfter?: string): PaymentRow[] {
+    const { where, args } = this.where(filter);
     if (startingAfter) {
       const cursor = this.get(startingAfter);
       if (cursor) (where.push("(created_at, id) < (?, ?)"), args.push(cursor.created_at, cursor.id));
@@ -138,6 +153,15 @@ export class PaymentService {
     const sql = `SELECT * FROM payments ${where.length ? "WHERE " + where.join(" AND ") : ""}
                  ORDER BY created_at DESC, id DESC LIMIT ?`;
     return this.db.prepare(sql).all(...args, limit) as unknown as PaymentRow[];
+  }
+
+  /** Rows for a spreadsheet export, newest first, with the merchant name attached. */
+  exportRows(filter: PaymentFilter, limit: number): (PaymentRow & { merchant_name: string })[] {
+    const { where, args } = this.where(filter, "p.");
+    const sql = `SELECT p.*, m.name AS merchant_name FROM payments p JOIN merchants m ON m.id = p.merchant_id
+                 ${where.length ? "WHERE " + where.join(" AND ") : ""}
+                 ORDER BY p.created_at DESC, p.id DESC LIMIT ?`;
+    return this.db.prepare(sql).all(...args, limit) as unknown as (PaymentRow & { merchant_name: string })[];
   }
 
   create(merchant: MerchantRow, livemode: boolean, input: CreatePaymentInput, idempotencyKey?: string): PaymentRow {
@@ -260,7 +284,8 @@ export class PaymentService {
   }
 
   /** Headline numbers and daily sales (Asia/Bangkok days) for a merchant's dashboard. */
-  summary(merchantId: string, livemode: boolean, days = 14) {
+  /** @param merchantId one merchant, or null for the whole gateway */
+  summary(merchantId: string | null, livemode: boolean, days = 14) {
     const BKK_OFFSET_MS = 7 * 3600_000;
     const dayKey = (t: number) => new Date(t + BKK_OFFSET_MS).toISOString().slice(0, 10);
     const todayStart = Date.parse(dayKey(Date.now()) + "T00:00:00Z") - BKK_OFFSET_MS;
@@ -269,9 +294,10 @@ export class PaymentService {
 
     const paid = this.db
       .prepare(
-        "SELECT amount, paid_at FROM payments WHERE merchant_id = ? AND livemode = ? AND status = 'succeeded' AND paid_at >= ?",
+        `SELECT amount, paid_at FROM payments WHERE ${merchantId ? "merchant_id = ? AND" : ""} livemode = ?
+         AND status = 'succeeded' AND paid_at >= ?`,
       )
-      .all(merchantId, mode, since) as { amount: number; paid_at: string }[];
+      .all(...(merchantId ? [merchantId] : []), mode, since) as { amount: number; paid_at: string }[];
     const daily = new Map<string, { amount: number; count: number }>();
     for (let i = days - 1; i >= 0; i--) daily.set(dayKey(todayStart - i * 86400_000), { amount: 0, count: 0 });
     for (const r of paid) {
@@ -282,8 +308,8 @@ export class PaymentService {
     const counts = Object.fromEntries(
       (
         this.db
-          .prepare("SELECT status, COUNT(*) AS n FROM payments WHERE merchant_id = ? AND livemode = ? GROUP BY status")
-          .all(merchantId, mode) as { status: string; n: number }[]
+          .prepare(`SELECT status, COUNT(*) AS n FROM payments WHERE ${merchantId ? "merchant_id = ? AND" : ""} livemode = ? GROUP BY status`)
+          .all(...(merchantId ? [merchantId] : []), mode) as { status: string; n: number }[]
       ).map((r) => [r.status, r.n]),
     );
     const today = daily.get(dayKey(Date.now()))!;

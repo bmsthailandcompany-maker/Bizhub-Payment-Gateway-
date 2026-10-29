@@ -73,14 +73,62 @@ CREATE TABLE IF NOT EXISTS slip_checks (
 );
 CREATE INDEX IF NOT EXISTS slip_checks_payment_idx ON slip_checks(payment_id, created_at);
 
-CREATE TABLE IF NOT EXISTS dashboard_sessions (
-  token_hash TEXT PRIMARY KEY,
+-- Staff of a merchant who sign in to the merchant dashboard.
+CREATE TABLE IF NOT EXISTS merchant_users (
+  id TEXT PRIMARY KEY,
   merchant_id TEXT NOT NULL REFERENCES merchants(id),
-  api_key_id TEXT NOT NULL REFERENCES api_keys(id),
-  livemode INTEGER NOT NULL,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 1,
+  active INTEGER NOT NULL DEFAULT 1,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS merchant_users_merchant_idx ON merchant_users(merchant_id);
+
+-- Gateway operators who sign in to the admin console.
+CREATE TABLE IF NOT EXISTS admin_users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 1,
+  active INTEGER NOT NULL DEFAULT 1,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Browser sessions for both dashboards. Exactly one principal column is set:
+-- user_id (staff / admin user), api_key_id (merchant owner via secret key) or neither for ADMIN_TOKEN.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  merchant_id TEXT,
+  user_id TEXT,
+  api_key_id TEXT,
+  livemode INTEGER NOT NULL DEFAULT 0,
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT,
+  actor_kind TEXT NOT NULL,
+  actor_id TEXT,
+  actor_name TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target TEXT,
+  details TEXT,
+  ip TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audit_merchant_idx ON audit_log(merchant_id, created_at);
+CREATE INDEX IF NOT EXISTS audit_created_idx ON audit_log(created_at);
 
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   merchant_id TEXT NOT NULL,

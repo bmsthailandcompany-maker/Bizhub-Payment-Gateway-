@@ -1,139 +1,248 @@
-import crypto from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { DUMMY_HASH, verifyPassword } from "../auth/passwords.ts";
+import { MERCHANT_ROLES, type MerchantPermission, type MerchantRole } from "../auth/permissions.ts";
 import type { Db } from "../db.ts";
+import type { AuditService } from "../services/audit.ts";
+import { MAX_EXPORT_ROWS, paymentExportTable } from "../services/export.ts";
 import type { MerchantService } from "../services/merchants.ts";
 import { serializeMerchant } from "../services/merchants.ts";
 import type { PaymentService } from "../services/payments.ts";
 import { PaymentError } from "../services/payments.ts";
+import type { LoginLimiter, SessionService } from "../services/sessions.ts";
 import type { SlipService } from "../services/slips.ts";
-import { renderDashboardPage } from "./dashboard-page.ts";
+import { serializeUser, type UserService } from "../services/users.ts";
 import { createPaymentSchema, listPaymentsQuery, rejectSchema } from "./schemas.ts";
+import {
+  appShell,
+  bangkokRange,
+  csrfOk,
+  exportQuery,
+  loginKey,
+  pageHeaders,
+  readCookie,
+  sendExport,
+  setSessionCookie,
+} from "./web-session.ts";
 
 const COOKIE = "bizhub_session";
-const SESSION_TTL_MS = 12 * 3600_000;
+const COOKIE_PATH = "/dashboard";
 
-function readCookie(req: FastifyRequest, name: string): string | undefined {
-  for (const part of (req.headers.cookie ?? "").split(";")) {
-    const [k, ...v] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(v.join("="));
-  }
-  return undefined;
-}
+const loginSchema = z.union([
+  z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) }),
+  z.object({ secret_key: z.string().min(1).max(200) }),
+]);
+const passwordSchema = z.object({ current_password: z.string().min(1).max(200), new_password: z.string().min(1).max(200) });
+const roleSchema = z.enum(Object.keys(MERCHANT_ROLES) as [MerchantRole, ...MerchantRole[]]);
+const createUserSchema = z.object({ email: z.string().email().max(200), name: z.string().min(1).max(120), role: roleSchema });
+const updateUserSchema = z.object({ name: z.string().min(1).max(120), role: roleSchema, active: z.boolean() }).partial();
 
-function sessionCookie(req: FastifyRequest, value: string, maxAgeS: number): string {
-  const secure = req.protocol === "https" ? "; Secure" : "";
-  return `${COOKIE}=${encodeURIComponent(value)}; Path=/dashboard; HttpOnly; SameSite=Strict; Max-Age=${maxAgeS}${secure}`;
+export interface DashboardDeps {
+  db: Db;
+  merchants: MerchantService;
+  payments: PaymentService;
+  slips: SlipService;
+  users: UserService;
+  sessions: SessionService;
+  audit: AuditService;
+  limiter: LoginLimiter;
 }
 
 /**
- * Merchant dashboard: a single page plus a cookie-session JSON API under /dashboard/api.
- * Merchants sign in with their secret key once; the browser then only holds an HttpOnly session.
+ * Merchant dashboard: a static page plus a cookie-session JSON API under /dashboard/api.
+ * Staff sign in with email + password and get their role's permissions; the merchant's
+ * secret key also works and acts as the owner.
  */
-export async function dashboardRoutes(
-  app: FastifyInstance,
-  opts: { db: Db; merchants: MerchantService; payments: PaymentService; slips: SlipService },
-) {
-  const { db, merchants, payments, slips } = opts;
+export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps) {
+  const { db, merchants, payments, slips, users, sessions, audit, limiter } = deps;
 
-  app.get("/dashboard", async (_req, reply) => {
-    const nonce = crypto.randomBytes(16).toString("base64");
-    return reply
-      .type("text/html; charset=utf-8")
-      .header(
-        "Content-Security-Policy",
-        `default-src 'self'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; img-src 'self' data: blob:; ` +
-          `connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
-      )
-      .header("Referrer-Policy", "no-referrer")
-      .header("Cache-Control", "no-store")
-      .send(renderDashboardPage(nonce));
-  });
+  app.get("/dashboard", async (_req, reply) => pageHeaders(reply).send(appShell("Bizhub Dashboard", "dashboard.js")));
 
   app.post("/dashboard/api/login", async (req, reply) => {
-    const { secret_key } = z.object({ secret_key: z.string().min(1).max(200) }).parse(req.body);
-    const session = merchants.createSession(secret_key.trim(), SESSION_TTL_MS);
-    if (!session) throw new PaymentError(401, "unauthorized", "Invalid secret key");
-    return reply
-      .header("Set-Cookie", sessionCookie(req, session.token, SESSION_TTL_MS / 1000))
-      .send({ ok: true, livemode: session.livemode });
+    if (!csrfOk(req)) throw new PaymentError(403, "forbidden", "Missing dashboard header");
+    const body = loginSchema.parse(req.body);
+    const who = "email" in body ? body.email : "secret-key";
+    const key = loginKey(req, who);
+    if (limiter.blocked(key)) {
+      throw new PaymentError(429, "too_many_attempts", "เข้าสู่ระบบผิดหลายครั้ง กรุณารอ 15 นาทีแล้วลองใหม่");
+    }
+
+    let token: string | undefined;
+    let merchantId: string | undefined;
+    let actorName = who;
+    let actorId: string | null = null;
+    if ("email" in body) {
+      const u = users.findByEmail("merchant", body.email);
+      // Always run the hash so response time does not reveal whether the email exists.
+      const ok = await verifyPassword(body.password, u?.password_hash ?? DUMMY_HASH);
+      const merchant = u ? merchants.get(u.merchant_id!) : undefined;
+      if (u && ok && u.active === 1 && merchant?.active === 1) {
+        token = sessions.create({ kind: "merchant", merchantId: u.merchant_id!, userId: u.id, livemode: true });
+        users.touchLogin("merchant", u.id);
+        merchantId = u.merchant_id!;
+        actorName = u.name;
+        actorId = u.id;
+      } else if (u) {
+        merchantId = u.merchant_id!;
+      }
+    } else {
+      const auth = merchants.authenticate(body.secret_key.trim());
+      if (auth) {
+        token = sessions.create({ kind: "merchant", merchantId: auth.merchant.id, apiKeyId: auth.keyId, livemode: auth.livemode });
+        merchantId = auth.merchant.id;
+        actorName = `Secret key ${body.secret_key.trim().slice(0, 12)}…`;
+        actorId = auth.keyId;
+      }
+    }
+
+    if (!token) {
+      limiter.fail(key);
+      if (merchantId) {
+        audit.log({ merchantId, actor: { kind: "system", id: null, name: who, role: "", mustChangePassword: false }, action: "auth.login_failed", ip: req.ip });
+      }
+      throw new PaymentError(401, "unauthorized", "อีเมล รหัสผ่าน หรือ Secret key ไม่ถูกต้อง");
+    }
+    limiter.succeed(key);
+    audit.log({
+      merchantId: merchantId!,
+      actor: { kind: actorId?.startsWith("key_") ? "api_key" : "merchant_user", id: actorId, name: actorName, role: "", mustChangePassword: false },
+      action: "auth.login",
+      ip: req.ip,
+    });
+    setSessionCookie(req, reply, COOKIE, COOKIE_PATH, token);
+    return { ok: true };
   });
 
   app.post("/dashboard/api/logout", async (req, reply) => {
     const token = readCookie(req, COOKIE);
-    if (token) merchants.endSession(token);
-    return reply.header("Set-Cookie", sessionCookie(req, "", 0)).send({ ok: true });
+    if (token) sessions.end(token);
+    setSessionCookie(req, reply, COOKIE, COOKIE_PATH, null);
+    return { ok: true };
   });
 
-  // Everything below needs a session.
   await app.register(async (api) => {
     api.addHook("preHandler", async (req: FastifyRequest, reply: FastifyReply) => {
       const token = readCookie(req, COOKIE);
-      const auth = token ? merchants.authenticateSession(token) : undefined;
-      if (!auth) return reply.code(401).send({ error: { code: "unauthorized", message: "Please sign in" } });
-      // SameSite=Strict already blocks cross-site cookies; this header check is defence in depth for writes.
-      if (req.method !== "GET" && req.headers["x-requested-with"] !== "bizhub-dashboard") {
-        return reply.code(403).send({ error: { code: "forbidden", message: "Missing dashboard header" } });
-      }
+      const auth = token ? sessions.resolveMerchant(token) : undefined;
+      if (!auth) return reply.code(401).send({ error: { code: "unauthorized", message: "กรุณาเข้าสู่ระบบ" } });
+      if (!csrfOk(req)) return reply.code(403).send({ error: { code: "forbidden", message: "Missing dashboard header" } });
       req.merchant = auth.merchant;
       req.livemode = auth.livemode;
+      req.actor = auth.actor;
+      req.sessionToken = token;
+      req.permissions = MERCHANT_ROLES[auth.actor.role as MerchantRole]?.permissions ?? [];
+      // A one-time password only lets the user set a real one.
+      const allowed = ["/dashboard/api/me", "/dashboard/api/password"];
+      if (auth.actor.mustChangePassword && !allowed.includes(req.routeOptions.url ?? "")) {
+        return reply.code(403).send({ error: { code: "password_change_required", message: "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน" } });
+      }
     });
 
+    const need = (perm: MerchantPermission) => async (req: FastifyRequest, reply: FastifyReply) => {
+      if (!req.permissions!.includes(perm)) {
+        return reply.code(403).send({ error: { code: "forbidden", message: "บัญชีของคุณไม่มีสิทธิ์ทำรายการนี้" } });
+      }
+    };
+    const log = (req: FastifyRequest, action: string, target?: string, details?: Record<string, unknown>) =>
+      audit.log({ merchantId: req.merchant!.id, actor: req.actor!, action, target, details, ip: req.ip });
     const own = (req: FastifyRequest, id: string) =>
       payments.expireIfDue(payments.getForMerchant(id, req.merchant!.id, req.livemode!));
 
     api.get("/dashboard/api/me", async (req) => ({
       merchant: serializeMerchant(req.merchant!),
       livemode: req.livemode,
-      webhook_secret: req.merchant!.webhook_secret,
+      user: {
+        name: req.actor!.name,
+        role: req.actor!.role,
+        role_label: MERCHANT_ROLES[req.actor!.role as MerchantRole]?.label ?? req.actor!.role,
+        kind: req.actor!.kind,
+        must_change_password: req.actor!.mustChangePassword,
+      },
+      permissions: req.permissions,
+      roles: Object.fromEntries(Object.entries(MERCHANT_ROLES).map(([k, v]) => [k, { label: v.label, permissions: v.permissions }])),
+      webhook_secret: req.permissions!.includes("webhooks.secret") ? req.merchant!.webhook_secret : null,
     }));
 
-    api.get("/dashboard/api/summary", async (req) => payments.summary(req.merchant!.id, req.livemode!));
+    api.post("/dashboard/api/password", async (req) => {
+      if (req.actor!.kind !== "merchant_user") throw new PaymentError(400, "not_a_user", "เข้าด้วย Secret key ไม่มีรหัสผ่านให้เปลี่ยน");
+      const { current_password, new_password } = passwordSchema.parse(req.body);
+      await users.changePassword("merchant", req.actor!.id!, current_password, new_password);
+      sessions.endForUser(req.actor!.id!, req.sessionToken);
+      log(req, "user.password_changed", req.actor!.id!);
+      return { ok: true };
+    });
 
-    api.get("/dashboard/api/payments", async (req) => {
+    // Staff switch between live and test data inside one session; a secret key is bound to its own mode.
+    api.post("/dashboard/api/mode", async (req) => {
+      const { livemode } = z.object({ livemode: z.boolean() }).parse(req.body);
+      if (req.actor!.kind === "api_key" && livemode !== req.livemode) {
+        throw new PaymentError(400, "key_mode_fixed", "เข้าด้วย Secret key สลับโหมดไม่ได้ กรุณาใช้ key ของโหมดนั้น");
+      }
+      sessions.setLivemode(req.sessionToken!, livemode);
+      return { livemode };
+    });
+
+    api.get("/dashboard/api/summary", { preHandler: need("payments.view") }, async (req) =>
+      payments.summary(req.merchant!.id, req.livemode!),
+    );
+
+    api.get("/dashboard/api/payments", { preHandler: need("payments.view") }, async (req) => {
       const q = listPaymentsQuery.extend({ q: z.string().max(100).optional() }).parse(req.query);
       const rows = payments.list(
         { merchantId: req.merchant!.id, livemode: req.livemode!, status: q.status, search: q.q?.trim() || undefined },
         q.limit + 1,
         q.starting_after,
       );
-      return {
-        object: "list",
-        data: rows.slice(0, q.limit).map((p) => payments.serialize(p)),
-        has_more: rows.length > q.limit,
-      };
+      return { object: "list", data: rows.slice(0, q.limit).map((p) => payments.serialize(p)), has_more: rows.length > q.limit };
     });
 
-    api.post("/dashboard/api/payments", async (req, reply) => {
-      const input = createPaymentSchema.parse(req.body);
-      return reply.code(201).send(payments.serialize(payments.create(req.merchant!, req.livemode!, input)));
+    api.get("/dashboard/api/payments/export", { preHandler: need("payments.export") }, async (req, reply) => {
+      const q = exportQuery.parse(req.query);
+      const rows = payments.exportRows(
+        { merchantId: req.merchant!.id, livemode: req.livemode!, status: q.status, search: q.q?.trim() || undefined, ...bangkokRange(q.from, q.to) },
+        MAX_EXPORT_ROWS + 1,
+      );
+      log(req, "payments.export", undefined, { format: q.format, rows: rows.length, status: q.status, from: q.from, to: q.to });
+      return sendExport(reply, q.format, `payments-${req.livemode ? "live" : "test"}`, paymentExportTable(rows, false));
     });
 
-    api.get<{ Params: { id: string } }>("/dashboard/api/payments/:id", async (req) => {
+    api.post("/dashboard/api/payments", { preHandler: need("payments.create") }, async (req, reply) => {
+      const p = payments.create(req.merchant!, req.livemode!, createPaymentSchema.parse(req.body));
+      log(req, "payment.create", p.id, { amount: p.amount, method: p.method });
+      return reply.code(201).send(payments.serialize(p));
+    });
+
+    api.get<{ Params: { id: string } }>("/dashboard/api/payments/:id", { preHandler: need("payments.view") }, async (req) => {
       const p = own(req, req.params.id);
       return { ...payments.serialize(p), slip_checks: slips.history(p.id) };
     });
 
-    api.get<{ Params: { id: string } }>("/dashboard/api/payments/:id/slip", async (req, reply) => {
+    api.get<{ Params: { id: string } }>("/dashboard/api/payments/:id/slip", { preHandler: need("payments.view") }, async (req, reply) => {
       const slip = payments.readSlip(own(req, req.params.id));
       if (!slip) throw new PaymentError(404, "not_found", "No slip uploaded for this payment");
       return reply.type(slip.mime).header("Cache-Control", "private, no-store").send(slip.data);
     });
 
-    api.post<{ Params: { id: string } }>("/dashboard/api/payments/:id/approve", async (req) =>
-      payments.serialize(payments.approve(own(req, req.params.id))),
-    );
-
-    api.post<{ Params: { id: string } }>("/dashboard/api/payments/:id/reject", async (req) => {
-      const { reason } = rejectSchema.parse(req.body ?? {});
-      return payments.serialize(payments.reject(own(req, req.params.id), reason));
+    api.post<{ Params: { id: string } }>("/dashboard/api/payments/:id/approve", { preHandler: need("payments.review") }, async (req) => {
+      const p = payments.approve(own(req, req.params.id));
+      log(req, "payment.approve", p.id, { amount: p.amount });
+      return payments.serialize(p);
     });
 
-    api.post<{ Params: { id: string } }>("/dashboard/api/payments/:id/cancel", async (req) =>
-      payments.serialize(payments.transition(own(req, req.params.id).id, "cancelled")),
-    );
+    api.post<{ Params: { id: string } }>("/dashboard/api/payments/:id/reject", { preHandler: need("payments.review") }, async (req) => {
+      const { reason } = rejectSchema.parse(req.body ?? {});
+      const p = payments.reject(own(req, req.params.id), reason);
+      log(req, "payment.reject", p.id, { reason });
+      return payments.serialize(p);
+    });
 
-    api.get("/dashboard/api/webhooks", async (req) => ({
+    api.post<{ Params: { id: string } }>("/dashboard/api/payments/:id/cancel", { preHandler: need("payments.cancel") }, async (req) => {
+      const p = payments.transition(own(req, req.params.id).id, "cancelled");
+      log(req, "payment.cancel", p.id);
+      return payments.serialize(p);
+    });
+
+    api.get("/dashboard/api/webhooks", { preHandler: need("settings.view") }, async (req) => ({
       object: "list",
       data: db
         .prepare(
@@ -145,5 +254,46 @@ export async function dashboardRoutes(
         )
         .all(req.merchant!.id, req.livemode! ? 1 : 0),
     }));
+
+    // ---- staff accounts ----
+    const ownUser = (req: FastifyRequest, id: string) => {
+      const u = users.get("merchant", id);
+      if (!u || u.merchant_id !== req.merchant!.id) throw new PaymentError(404, "not_found", "ไม่พบบัญชีผู้ใช้");
+      return u;
+    };
+
+    api.get("/dashboard/api/users", { preHandler: need("users.manage") }, async (req) => ({
+      object: "list",
+      data: users.list("merchant", req.merchant!.id).map(serializeUser),
+    }));
+
+    api.post("/dashboard/api/users", { preHandler: need("users.manage") }, async (req, reply) => {
+      const input = createUserSchema.parse(req.body);
+      const { user, temporaryPassword } = await users.create("merchant", { ...input, merchantId: req.merchant!.id });
+      log(req, "user.create", user.id, { email: user.email, role: user.role });
+      return reply.code(201).send({ ...serializeUser(user), temporary_password: temporaryPassword });
+    });
+
+    api.patch<{ Params: { id: string } }>("/dashboard/api/users/:id", { preHandler: need("users.manage") }, async (req) => {
+      const before = ownUser(req, req.params.id);
+      const input = updateUserSchema.parse(req.body);
+      const after = users.update("merchant", before.id, input);
+      if (after.active === 0) sessions.endForUser(after.id);
+      log(req, "user.update", after.id, { email: after.email, from: { role: before.role, active: before.active === 1 }, to: input });
+      return serializeUser(after);
+    });
+
+    api.post<{ Params: { id: string } }>("/dashboard/api/users/:id/reset-password", { preHandler: need("users.manage") }, async (req) => {
+      const u = ownUser(req, req.params.id);
+      const password = await users.resetPassword("merchant", u.id);
+      sessions.endForUser(u.id);
+      log(req, "user.reset_password", u.id, { email: u.email });
+      return { temporary_password: password };
+    });
+
+    api.get("/dashboard/api/audit", { preHandler: need("audit.view") }, async (req) => {
+      const { before } = z.object({ before: z.string().max(40).optional() }).parse(req.query);
+      return { object: "list", data: audit.list({ merchantId: req.merchant!.id, before }, 50) };
+    });
   });
 }
