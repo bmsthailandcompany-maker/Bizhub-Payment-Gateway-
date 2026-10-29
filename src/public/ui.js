@@ -63,7 +63,11 @@
     "user.password_changed": "เปลี่ยนรหัสผ่าน", "merchant.create": "สร้างร้านค้า", "merchant.update": "แก้ไขร้านค้า", "merchant.rotate_keys": "ออก API key ใหม่",
     "merchant.rotate_webhook_secret": "เปลี่ยน webhook secret", "merchant_user.create": "เพิ่มบัญชีร้านค้า", "merchant_user.update": "แก้ไขบัญชีร้านค้า",
     "merchant_user.reset_password": "รีเซ็ตรหัสผ่านบัญชีร้านค้า", "webhook.retry": "ส่ง webhook ซ้ำ", "admin_user.create": "เพิ่มแอดมิน",
-    "admin_user.update": "แก้ไขแอดมิน", "admin_user.reset_password": "รีเซ็ตรหัสผ่านแอดมิน", "admin_user.password_changed": "แอดมินเปลี่ยนรหัสผ่าน",
+    "admin_user.update": "แก้ไขแอดมิน",
+    "auth.2fa_failed": "ใส่รหัส 2FA ผิด", "admin.2fa_failed": "แอดมินใส่รหัส 2FA ผิด", "user.2fa_enabled": "เปิดใช้ 2FA", "user.2fa_disabled": "ปิด 2FA",
+    "user.2fa_recovery_regenerated": "สร้างรหัสกู้คืนใหม่", "user.2fa_reset": "ล้าง 2FA ของพนักงาน", "admin_user.2fa_enabled": "แอดมินเปิดใช้ 2FA",
+    "admin_user.2fa_disabled": "แอดมินปิด 2FA", "admin_user.2fa_recovery_regenerated": "แอดมินสร้างรหัสกู้คืนใหม่", "admin_user.2fa_reset": "ล้าง 2FA ของแอดมิน",
+    "merchant_user.2fa_reset": "ล้าง 2FA ของบัญชีร้านค้า", "merchant.security_policy": "เปลี่ยนนโยบายความปลอดภัย", "admin_user.reset_password": "รีเซ็ตรหัสผ่านแอดมิน", "admin_user.password_changed": "แอดมินเปลี่ยนรหัสผ่าน",
   };
 
   function statusBadge(s) {
@@ -72,6 +76,7 @@
   }
 
   function toast(msg) {
+    document.querySelectorAll(".toast").forEach((old) => old.remove());
     const t = h("div", { class: "toast", role: "status" }, msg);
     document.body.append(t);
     setTimeout(() => t.remove(), 2600);
@@ -203,6 +208,115 @@
     } }, h("h1", { class: "m0 " + (brandClass || "") }, title), h("p", {}, subtitle), userFields, altFields, err, h("div", { class: "row" }, btn, h("span", { class: "spacer" }), toggle));
     root.replaceChildren(h("div", { class: "wrap" }, form));
     email.focus();
+  }
+
+  // ---------- two-factor authentication ----------
+  /** Second login step: 6-digit code from the app, or a recovery code. */
+  function mfaPrompt(root, { api, token, onDone, onBack }) {
+    let recovery = false;
+    const err = h("p", { class: "error", role: "alert" });
+    const input = h("input", { type: "text", id: "otp", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", pattern: "[0-9]{6}", required: true, class: "otp" });
+    const label = h("span", {}, "รหัส 6 หลักจากแอป Authenticator");
+    const toggle = h("button", { class: "link small", type: "button", onclick: () => {
+      recovery = !recovery;
+      label.textContent = recovery ? "รหัสกู้คืน (เช่น abcd-2345)" : "รหัส 6 หลักจากแอป Authenticator";
+      input.value = ""; input.maxLength = recovery ? 20 : 6;
+      input.inputMode = recovery ? "text" : "numeric";
+      if (recovery) input.removeAttribute("pattern"); else input.setAttribute("pattern", "[0-9]{6}");
+      toggle.textContent = recovery ? "ใช้รหัสจากแอปแทน" : "ทำมือถือหาย? ใช้รหัสกู้คืน";
+      input.focus();
+    } }, "ทำมือถือหาย? ใช้รหัสกู้คืน");
+    const btn = h("button", { class: "btn primary", type: "submit" }, "ยืนยัน");
+    const form = h("form", { class: "card login", onsubmit: async (e) => {
+      e.preventDefault(); err.textContent = ""; btn.disabled = true;
+      try {
+        const r = await api("/login/2fa", { method: "POST", body: { mfa_token: token, code: input.value.trim() }, allow401: true });
+        if (r.used_recovery_code) toast("ใช้รหัสกู้คืนไปแล้ว 1 รหัส แนะนำให้สร้างชุดใหม่ในหน้าบัญชี");
+        await onDone();
+      } catch (ex) {
+        if (ex.code === "mfa_expired") { toast(ex.message); return onBack(); }
+        err.textContent = ex.message; input.value = ""; input.focus();
+      } finally { btn.disabled = false; }
+    } },
+      h("h1", { class: "m0" }, "ยืนยันตัวตน 2 ชั้น"),
+      h("p", {}, "เปิดแอป Authenticator ในมือถือ แล้วกรอกรหัสของบัญชีนี้"),
+      h("label", { class: "f", for: "otp" }, label, input), err,
+      h("div", { class: "row" }, btn, h("span", { class: "spacer" }), toggle),
+      h("button", { class: "link small", type: "button", onclick: onBack }, "← กลับไปหน้าเข้าสู่ระบบ"));
+    root.replaceChildren(h("div", { class: "wrap" }, form));
+    input.focus();
+  }
+
+  function showRecoveryCodes(codes) {
+    const m = modal("รหัสกู้คืน");
+    const text = codes.join("\n");
+    const url = URL.createObjectURL(new Blob(["Bizhub recovery codes\n\n" + text + "\n"], { type: "text/plain" }));
+    m.body.append(
+      h("p", { class: "m0" }, "ใช้แทนรหัสจากแอปได้รหัสละ 1 ครั้ง เมื่อทำมือถือหายหรือเปลี่ยนเครื่อง เก็บไว้ในที่ปลอดภัย (เช่น พิมพ์เก็บ หรือโปรแกรมจัดการรหัสผ่าน)"),
+      h("div", { class: "codes" }, codes.map((c) => h("code", {}, c))),
+      h("div", { class: "row" },
+        h("button", { class: "btn", type: "button", onclick: () => copyText(text) }, "คัดลอกทั้งหมด"),
+        h("a", { class: "btn", href: url, download: "bizhub-recovery-codes.txt" }, "ดาวน์โหลด .txt")),
+      h("div", { class: "notice" }, "ระบบจะแสดงรหัสชุดนี้ครั้งเดียว"),
+      h("div", { class: "row end" }, h("button", { class: "btn primary", type: "button", onclick: () => { URL.revokeObjectURL(url); m.close(); } }, "เก็บไว้แล้ว")));
+  }
+
+  /** Enrolment: scan the QR, confirm one code, receive recovery codes. Renders into `container`. */
+  async function mfaSetup(container, { api, onDone, intro }) {
+    container.replaceChildren(h("p", { class: "muted" }, "กำลังเตรียม…"));
+    const s = await api("/2fa/setup", { method: "POST", body: {} });
+    const err = h("p", { class: "error", role: "alert" });
+    const code = h("input", { type: "text", inputmode: "numeric", autocomplete: "one-time-code", maxlength: "6", pattern: "[0-9]{6}", required: true, class: "otp", "aria-label": "รหัส 6 หลัก" });
+    const btn = h("button", { class: "btn primary", type: "submit" }, "ยืนยันและเปิดใช้");
+    container.replaceChildren(h("form", { class: "grid", onsubmit: async (e) => {
+      e.preventDefault(); err.textContent = ""; btn.disabled = true;
+      try {
+        const r = await api("/2fa/confirm", { method: "POST", body: { code: code.value.trim() } });
+        showRecoveryCodes(r.recovery_codes);
+        toast("เปิดใช้ยืนยันตัวตน 2 ชั้นแล้ว");
+        await onDone();
+      } catch (ex) { err.textContent = ex.message; code.value = ""; code.focus(); } finally { btn.disabled = false; }
+    } },
+      intro ? h("p", { class: "m0" }, intro) : null,
+      h("ol", { class: "steps" },
+        h("li", {}, "ติดตั้งแอป Authenticator ในมือถือ (เช่น Google Authenticator, Microsoft Authenticator)"),
+        h("li", {}, "สแกน QR นี้ด้วยแอป", h("img", { class: "qr-out mt8", src: s.qr, alt: "QR สำหรับตั้งค่า 2FA" }),
+          h("details", { class: "small mt8" }, h("summary", {}, "สแกนไม่ได้? กรอกรหัสนี้ในแอปแทน"), h("div", { class: "secret-box mt8" }, s.secret.replace(/(.{4})/g, "$1 ").trim()))),
+        h("li", {}, "กรอกรหัส 6 หลักที่แอปแสดง", code)),
+      err, h("div", { class: "row" }, btn)));
+    code.focus();
+  }
+
+  /** Card for an account page: shows 2FA status with enable / new codes / disable. */
+  async function twoFactorCard(container, { api, onChanged }) {
+    const st = await api("/2fa");
+    const askCode = (title, submit, onSubmit) => formModal(title, [{ name: "code", label: "รหัส 6 หลักจากแอป หรือรหัสกู้คืน", required: true, autocomplete: "one-time-code" }], submit, onSubmit);
+    container.replaceChildren(h("div", { class: "card grid" },
+      h("h2", { class: "m0" }, "ยืนยันตัวตน 2 ชั้น (2FA)"),
+      st.enabled
+        ? h("div", {}, h("span", { class: "status on" }, "✓ เปิดใช้อยู่"), h("p", { class: "small muted" }, `เหลือรหัสกู้คืน ${st.recovery_codes_left} รหัส`))
+        : h("div", {}, h("span", { class: "status off" }, "ยังไม่เปิดใช้"), h("p", { class: "small muted" }, "แนะนำให้เปิดใช้ เพื่อให้คนที่รู้รหัสผ่านของคุณก็ยังเข้าบัญชีไม่ได้หากไม่มีมือถือของคุณ")),
+      h("div", { class: "actions" },
+        !st.enabled ? h("button", { class: "btn primary", type: "button", onclick: () => {
+          const m = modal("เปิดใช้ยืนยันตัวตน 2 ชั้น");
+          mfaSetup(m.body, { api, onDone: async () => { m.close(); await twoFactorCard(container, { api, onChanged }); onChanged && onChanged(); } }).catch((ex) => m.body.replaceChildren(h("p", { class: "error" }, ex.message)));
+        } }, "เปิดใช้ 2FA") : null,
+        st.enabled ? h("button", { class: "btn", type: "button", onclick: () => askCode("สร้างรหัสกู้คืนชุดใหม่", "สร้างชุดใหม่", async (v, m) => {
+          const r = await api("/2fa/recovery-codes", { method: "POST", body: v }); m.close(); showRecoveryCodes(r.recovery_codes); await twoFactorCard(container, { api, onChanged });
+        }) }, "สร้างรหัสกู้คืนชุดใหม่") : null,
+        st.enabled && !st.required ? h("button", { class: "btn bad", type: "button", onclick: () => askCode("ปิด 2FA", "ปิด 2FA", async (v, m) => {
+          await api("/2fa/disable", { method: "POST", body: v }); m.close(); toast("ปิด 2FA แล้ว"); await twoFactorCard(container, { api, onChanged }); onChanged && onChanged();
+        }) }, "ปิด 2FA") : null),
+      st.required ? h("p", { class: "small muted m0" }, "นโยบายความปลอดภัยกำหนดให้บัญชีนี้ต้องใช้ 2FA") : null));
+  }
+
+  /** Full-page forced enrolment shown when policy requires 2FA. */
+  function mfaSetupRequiredView(root, { api, onDone, onLogout, reason }) {
+    const box = h("div");
+    root.replaceChildren(h("div", { class: "wrap" }, h("div", { class: "card login" },
+      h("h1", { class: "m0" }, "ตั้งค่ายืนยันตัวตน 2 ชั้น"), box,
+      h("button", { class: "link small", type: "button", onclick: onLogout }, "ออกจากระบบ"))));
+    mfaSetup(box, { api, onDone, intro: reason }).catch((ex) => box.replaceChildren(h("p", { class: "error" }, ex.message)));
   }
 
   function changePasswordView(root, { api, forced, onDone }) {
@@ -422,7 +536,8 @@
             h("td", {}, h("span", { class: "ref" }, u.name), h("span", { class: "small muted" }, u.email)),
             h("td", {}, h("span", { class: "pill role" }, roles[u.role]?.label || u.role)),
             h("td", {}, u.active ? h("span", { class: "status on" }, "ใช้งาน") : h("span", { class: "status off" }, "ปิดใช้งาน"),
-              u.must_change_password && u.active ? h("div", { class: "small muted" }, "ยังไม่ได้ตั้งรหัสผ่าน") : null),
+              u.must_change_password && u.active ? h("div", { class: "small muted" }, "ยังไม่ได้ตั้งรหัสผ่าน") : null,
+              h("div", { class: "small " + (u.two_factor ? "yes" : "muted") }, u.two_factor ? "✓ 2FA" : "ไม่มี 2FA")),
             h("td", { class: "small c-last" }, u.last_login_at ? dt(u.last_login_at) : "ยังไม่เคยเข้า"),
             cfg.canManage ? h("td", { class: "num" }, h("div", { class: "actions" },
               h("button", { class: "btn sm", type: "button", onclick: () => formModal("แก้ไข " + u.name, [
@@ -434,7 +549,12 @@
                 if (!confirm(`รีเซ็ตรหัสผ่านของ ${u.name}? ผู้ใช้จะถูกออกจากระบบทุกอุปกรณ์`)) return;
                 try { const r = await api(base + "/" + u.id + "/reset-password", { method: "POST", body: {} }); showSecret("รหัสผ่านชั่วคราวใหม่ของ " + u.name, [["รหัสผ่านชั่วคราว", r.temporary_password]]); await load(); }
                 catch (ex) { toast(ex.message); }
-              } }, "รีเซ็ตรหัสผ่าน"))) : null))))) : h("div", { class: "empty" }, "ยังไม่มีบัญชี"),
+              } }, "รีเซ็ตรหัสผ่าน"),
+              u.two_factor ? h("button", { class: "btn sm", type: "button", onclick: async () => {
+                if (!confirm(`ล้าง 2FA ของ ${u.name}? ใช้เมื่อผู้ใช้ทำมือถือหาย ผู้ใช้จะถูกออกจากระบบและต้องตั้งค่า 2FA ใหม่`)) return;
+                try { await api(base + "/" + u.id + "/reset-2fa", { method: "POST", body: {} }); toast("ล้าง 2FA แล้ว"); await load(); }
+                catch (ex) { toast(ex.message); }
+              } }, "ล้าง 2FA") : null)) : null))))) : h("div", { class: "empty" }, "ยังไม่มีบัญชี"),
         roleTable(roles)));
     };
     await load(cfg.rows);
@@ -482,6 +602,7 @@
   window.UI = {
     h, svg, baht, bahtShort, dt, dayLabel, STATUS, METHOD, statusBadge, toast, copyText, copyField, makeApi,
     drawer, modal, showSecret, formModal, loginView, changePasswordView, shell, salesChart, paymentTable, openPayment,
+    mfaPrompt, mfaSetupRequiredView, twoFactorCard, showRecoveryCodes,
     exportDialog, usersPanel, auditTable, reasonText,
   };
 })();

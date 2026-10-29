@@ -4,14 +4,18 @@ import os from "node:os";
 import path from "node:path";
 import type { LightMyRequestResponse } from "fastify";
 import { buildApp, type AppDeps, type Gateway } from "../src/app.ts";
+import type { Config } from "../src/config.ts";
 import { openDb } from "../src/db.ts";
 
 export const ADMIN = "admin-token-for-tests-only";
 
-export async function makeGateway(deps: Partial<AppDeps> = {}): Promise<{ gw: Gateway; cleanup: () => Promise<void> }> {
+export async function makeGateway(
+  deps: Partial<AppDeps> = {},
+  config: Partial<Config> = {},
+): Promise<{ gw: Gateway; cleanup: () => Promise<void> }> {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "bizhub-"));
   const gw = await buildApp(
-    { port: 0, publicBaseUrl: "https://pay.example.com", adminToken: ADMIN, dataDir, defaultPaymentTtlSeconds: 900, omise: null, slipVerifier: null, workerIntervalMs: 0 },
+    { port: 0, publicBaseUrl: "https://pay.example.com", adminToken: ADMIN, dataDir, defaultPaymentTtlSeconds: 900, omise: null, slipVerifier: null, workerIntervalMs: 0, requireAdmin2fa: false, ...config },
     { db: openDb(":memory:"), fetchImpl: (async () => new Response("ok")) as unknown as typeof fetch, logger: false, ...deps },
   );
   return {

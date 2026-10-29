@@ -12,6 +12,8 @@ export interface Config {
     | { provider: "easyslip"; apiKey: string; baseUrl?: string }
     | { provider: "slipok"; branchId: string; apiKey: string }
     | null;
+  /** Admin console accounts must set up two-factor authentication before using the console. */
+  requireAdmin2fa: boolean;
   /** Interval for background jobs (webhook delivery, expiry sweep). 0 disables them. */
   workerIntervalMs: number;
 }
@@ -32,6 +34,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     defaultPaymentTtlSeconds: Number(env.DEFAULT_PAYMENT_TTL_SECONDS ?? 900),
     omise: omisePublic && omiseSecret ? { publicKey: omisePublic, secretKey: omiseSecret } : null,
     workerIntervalMs: Number(env.WORKER_INTERVAL_MS ?? 5000),
+    requireAdmin2fa: env.ADMIN_REQUIRE_2FA === "true",
   };
 }
 

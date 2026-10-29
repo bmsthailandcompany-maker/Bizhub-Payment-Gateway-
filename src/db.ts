@@ -186,6 +186,16 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["payments", "verify_retry_at", "TEXT"],
   ["payments", "verify_retries", "INTEGER NOT NULL DEFAULT 0"],
   ["payments", "slip_trans_ref", "TEXT"],
+  // Two-factor authentication. totp_secret is set while enrolling; totp_enabled flips once a code is confirmed.
+  ["merchant_users", "totp_secret", "TEXT"],
+  ["merchant_users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0"],
+  ["merchant_users", "totp_last_step", "INTEGER"],
+  ["merchant_users", "recovery_codes", "TEXT"],
+  ["admin_users", "totp_secret", "TEXT"],
+  ["admin_users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0"],
+  ["admin_users", "totp_last_step", "INTEGER"],
+  ["admin_users", "recovery_codes", "TEXT"],
+  ["merchants", "require_2fa", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 function migrate(db: Db): void {

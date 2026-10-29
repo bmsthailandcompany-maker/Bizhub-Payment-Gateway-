@@ -12,9 +12,12 @@ export interface Actor {
   name: string;
   role: string;
   mustChangePassword: boolean;
+  /** 2FA is required by policy but not yet set up: only enrolment is allowed. */
+  mfaSetupRequired?: boolean;
 }
 
 export const SESSION_TTL_MS = 12 * 3600_000;
+const PENDING_TTL_MS = 5 * 60_000;
 
 interface SessionRow {
   token_hash: string;
@@ -29,7 +32,27 @@ export class SessionService {
   constructor(
     private readonly db: Db,
     private readonly adminToken: string,
+    private readonly requireAdmin2fa = false,
   ) {}
+
+  /** A short-lived ticket proving the password step passed; exchanged for a session after the 2FA code. */
+  createPending(kind: SessionKind, userId: string, merchantId?: string): string {
+    const token = randomToken(40);
+    this.db
+      .prepare(
+        "INSERT INTO sessions (token_hash, kind, merchant_id, user_id, livemode, expires_at, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)",
+      )
+      .run(sha256(token), `mfa_${kind}`, merchantId ?? null, userId, new Date(Date.now() + PENDING_TTL_MS).toISOString(), now());
+    return token;
+  }
+
+  /** Looks up a pending ticket without using it up (wrong codes may be retried until it expires). */
+  peekPending(kind: SessionKind, token: string): { userId: string; merchantId: string | null } | undefined {
+    const row = this.db
+      .prepare("SELECT user_id, merchant_id FROM sessions WHERE token_hash = ? AND kind = ? AND expires_at > ?")
+      .get(sha256(token), `mfa_${kind}`, now()) as { user_id: string; merchant_id: string | null } | undefined;
+    return row ? { userId: row.user_id, merchantId: row.merchant_id } : undefined;
+  }
 
   create(input: { kind: SessionKind; merchantId?: string; userId?: string; apiKeyId?: string; livemode?: boolean }): string {
     const token = randomToken(48);
@@ -70,10 +93,17 @@ export class SessionService {
     let actor: Actor;
     if (s.user_id) {
       const u = this.db
-        .prepare("SELECT id, name, role, must_change_password FROM merchant_users WHERE id = ? AND merchant_id = ? AND active = 1")
-        .get(s.user_id, s.merchant_id) as { id: string; name: string; role: string; must_change_password: number } | undefined;
+        .prepare("SELECT id, name, role, must_change_password, totp_enabled FROM merchant_users WHERE id = ? AND merchant_id = ? AND active = 1")
+        .get(s.user_id, s.merchant_id) as { id: string; name: string; role: string; must_change_password: number; totp_enabled: number } | undefined;
       if (!u) return undefined;
-      actor = { kind: "merchant_user", id: u.id, name: u.name, role: u.role, mustChangePassword: u.must_change_password === 1 };
+      actor = {
+        kind: "merchant_user",
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        mustChangePassword: u.must_change_password === 1,
+        mfaSetupRequired: merchant.require_2fa === 1 && u.totp_enabled !== 1,
+      };
     } else if (s.api_key_id) {
       const k = this.db.prepare("SELECT key_prefix FROM api_keys WHERE id = ? AND revoked_at IS NULL").get(s.api_key_id) as
         | { key_prefix: string }
@@ -91,10 +121,19 @@ export class SessionService {
     if (!s) return undefined;
     if (s.user_id) {
       const u = this.db
-        .prepare("SELECT id, name, role, must_change_password FROM admin_users WHERE id = ? AND active = 1")
-        .get(s.user_id) as { id: string; name: string; role: string; must_change_password: number } | undefined;
+        .prepare("SELECT id, name, role, must_change_password, totp_enabled FROM admin_users WHERE id = ? AND active = 1")
+        .get(s.user_id) as { id: string; name: string; role: string; must_change_password: number; totp_enabled: number } | undefined;
       if (!u) return undefined;
-      return { actor: { kind: "admin_user", id: u.id, name: u.name, role: u.role, mustChangePassword: u.must_change_password === 1 } };
+      return {
+        actor: {
+          kind: "admin_user",
+          id: u.id,
+          name: u.name,
+          role: u.role,
+          mustChangePassword: u.must_change_password === 1,
+          mfaSetupRequired: this.requireAdmin2fa && u.totp_enabled !== 1,
+        },
+      };
     }
     if (s.api_key_id !== sha256(this.adminToken)) return undefined;
     return { actor: { kind: "admin_token", id: null, name: "ADMIN_TOKEN", role: "superadmin", mustChangePassword: false } };

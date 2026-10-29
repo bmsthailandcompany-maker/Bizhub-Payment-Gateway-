@@ -14,6 +14,7 @@ import { PaymentError } from "../services/payments.ts";
 import type { LoginLimiter, SessionService } from "../services/sessions.ts";
 import type { SlipService } from "../services/slips.ts";
 import { serializeUser, type UserService } from "../services/users.ts";
+import { mfaSetupPaths, registerMfaLogin, registerMfaSelfService } from "./mfa.ts";
 import { createMerchantSchema, listPaymentsQuery, rejectSchema, updateMerchantSchema } from "./schemas.ts";
 import {
   appShell,
@@ -51,6 +52,7 @@ export interface AdminConsoleDeps {
   sessions: SessionService;
   audit: AuditService;
   limiter: LoginLimiter;
+  requireAdmin2fa: boolean;
 }
 
 /**
@@ -75,6 +77,10 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
     if ("email" in body) {
       const u = users.findByEmail("admin", body.email);
       const ok = await verifyPassword(body.password, u?.password_hash ?? DUMMY_HASH);
+      if (u && ok && u.active === 1 && u.totp_enabled === 1) {
+        limiter.succeed(key);
+        return { mfa_required: true, mfa_token: sessions.createPending("admin", u.id) };
+      }
       if (u && ok && u.active === 1) {
         token = sessions.create({ kind: "admin", userId: u.id });
         users.touchLogin("admin", u.id);
@@ -98,6 +104,18 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
     return { ok: true };
   });
 
+  registerMfaLogin(app, {
+    base: BASE,
+    kind: "admin",
+    scope: "admin",
+    cookie: { name: COOKIE, path: COOKIE_PATH },
+    users,
+    sessions,
+    audit,
+    limiter,
+    startSession: (userId) => (users.get("admin", userId)?.active === 1 ? sessions.create({ kind: "admin", userId }) : undefined),
+  });
+
   app.post(`${BASE}/logout`, async (req, reply) => {
     const token = readCookie(req, COOKIE);
     if (token) sessions.end(token);
@@ -114,8 +132,13 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
       req.actor = auth.actor;
       req.sessionToken = token;
       req.permissions = ADMIN_ROLES[auth.actor.role as AdminRole]?.permissions ?? [];
-      if (auth.actor.mustChangePassword && ![`${BASE}/me`, `${BASE}/password`].includes(req.routeOptions.url ?? "")) {
-        return reply.code(403).send({ error: { code: "password_change_required", message: "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน" } });
+      // Order matters: a one-time password is replaced first, then 2FA is set up.
+      if (auth.actor.mustChangePassword) {
+        if (![`${BASE}/me`, `${BASE}/password`].includes(req.routeOptions.url ?? "")) {
+          return reply.code(403).send({ error: { code: "password_change_required", message: "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน" } });
+        }
+      } else if (auth.actor.mfaSetupRequired && !mfaSetupPaths(BASE).includes(req.routeOptions.url ?? "")) {
+        return reply.code(403).send({ error: { code: "mfa_setup_required", message: "ต้องตั้งค่ายืนยันตัวตน 2 ชั้นก่อนใช้งาน" } });
       }
     });
 
@@ -144,7 +167,10 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
         role_label: ADMIN_ROLES[req.actor!.role as AdminRole]?.label ?? req.actor!.role,
         kind: req.actor!.kind,
         must_change_password: req.actor!.mustChangePassword,
+        mfa_setup_required: req.actor!.mfaSetupRequired ?? false,
+        two_factor: req.actor!.kind === "admin_user" ? users.get("admin", req.actor!.id!)?.totp_enabled === 1 : null,
       },
+      require_admin_2fa: deps.requireAdmin2fa,
       permissions: req.permissions,
       roles: Object.fromEntries(Object.entries(ADMIN_ROLES).map(([k, v]) => [k, { label: v.label, permissions: v.permissions }])),
       merchant_roles: Object.fromEntries(Object.entries(MERCHANT_ROLES).map(([k, v]) => [k, { label: v.label }])),
@@ -420,6 +446,36 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
       log(req, "admin_user.reset_password", null, req.params.id);
       return { temporary_password: password };
     });
+
+    registerMfaSelfService(api, {
+      base: BASE,
+      scope: "admin",
+      issuer: () => "Bizhub Admin",
+      users,
+      sessions,
+      required: () => deps.requireAdmin2fa,
+      log: (req, action, target, details) => log(req, action, null, target, details),
+    });
+
+    api.post<{ Params: { id: string } }>(`${BASE}/admins/:id/reset-2fa`, { preHandler: need("admins.manage") }, async (req) => {
+      if (!users.get("admin", req.params.id)) throw new PaymentError(404, "not_found", "ไม่พบบัญชีผู้ใช้");
+      users.disableTotp("admin", req.params.id);
+      sessions.endForUser(req.params.id);
+      log(req, "admin_user.2fa_reset", null, req.params.id);
+      return { ok: true };
+    });
+
+    api.post<{ Params: { id: string; userId: string } }>(
+      `${BASE}/merchants/:id/users/:userId/reset-2fa`,
+      { preHandler: need("merchant_users.manage") },
+      async (req) => {
+        const u = merchantUser(req.params.id, req.params.userId);
+        users.disableTotp("merchant", u.id);
+        sessions.endForUser(u.id);
+        log(req, "merchant_user.2fa_reset", req.params.id, u.id, { email: u.email });
+        return { ok: true };
+      },
+    );
 
     api.get(`${BASE}/audit`, { preHandler: need("audit.view") }, async (req) => {
       const q = z.object({ merchant_id: z.string().max(64).optional(), before: z.string().max(40).optional() }).parse(req.query);

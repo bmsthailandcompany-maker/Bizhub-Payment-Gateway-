@@ -12,6 +12,7 @@ import { PaymentError } from "../services/payments.ts";
 import type { LoginLimiter, SessionService } from "../services/sessions.ts";
 import type { SlipService } from "../services/slips.ts";
 import { serializeUser, type UserService } from "../services/users.ts";
+import { mfaSetupPaths, registerMfaLogin, registerMfaSelfService } from "./mfa.ts";
 import { createPaymentSchema, listPaymentsQuery, rejectSchema } from "./schemas.ts";
 import {
   appShell,
@@ -76,6 +77,11 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       // Always run the hash so response time does not reveal whether the email exists.
       const ok = await verifyPassword(body.password, u?.password_hash ?? DUMMY_HASH);
       const merchant = u ? merchants.get(u.merchant_id!) : undefined;
+      if (u && ok && u.active === 1 && merchant?.active === 1 && u.totp_enabled === 1) {
+        // Password is right; the session is only issued after the 2FA code (see /login/2fa).
+        limiter.succeed(key);
+        return { mfa_required: true, mfa_token: sessions.createPending("merchant", u.id, u.merchant_id!) };
+      }
       if (u && ok && u.active === 1 && merchant?.active === 1) {
         token = sessions.create({ kind: "merchant", merchantId: u.merchant_id!, userId: u.id, livemode: true });
         users.touchLogin("merchant", u.id);
@@ -113,6 +119,23 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
     return { ok: true };
   });
 
+  registerMfaLogin(app, {
+    base: "/dashboard/api",
+    kind: "merchant",
+    scope: "merchant",
+    cookie: { name: COOKIE, path: COOKIE_PATH },
+    users,
+    sessions,
+    audit,
+    limiter,
+    startSession: (userId, merchantId) => {
+      const u = users.get("merchant", userId);
+      const m = merchantId ? merchants.get(merchantId) : undefined;
+      if (!u || u.active !== 1 || m?.active !== 1) return undefined;
+      return sessions.create({ kind: "merchant", merchantId: m.id, userId: u.id, livemode: true });
+    },
+  });
+
   app.post("/dashboard/api/logout", async (req, reply) => {
     const token = readCookie(req, COOKIE);
     if (token) sessions.end(token);
@@ -133,8 +156,12 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       req.permissions = MERCHANT_ROLES[auth.actor.role as MerchantRole]?.permissions ?? [];
       // A one-time password only lets the user set a real one.
       const allowed = ["/dashboard/api/me", "/dashboard/api/password"];
-      if (auth.actor.mustChangePassword && !allowed.includes(req.routeOptions.url ?? "")) {
-        return reply.code(403).send({ error: { code: "password_change_required", message: "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน" } });
+      if (auth.actor.mustChangePassword) {
+        if (!allowed.includes(req.routeOptions.url ?? "")) {
+          return reply.code(403).send({ error: { code: "password_change_required", message: "กรุณาตั้งรหัสผ่านใหม่ก่อนใช้งาน" } });
+        }
+      } else if (auth.actor.mfaSetupRequired && !mfaSetupPaths("/dashboard/api").includes(req.routeOptions.url ?? "")) {
+        return reply.code(403).send({ error: { code: "mfa_setup_required", message: "ร้านนี้กำหนดให้ใช้ยืนยันตัวตน 2 ชั้น กรุณาตั้งค่าก่อนใช้งาน" } });
       }
     });
 
@@ -157,6 +184,8 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
         role_label: MERCHANT_ROLES[req.actor!.role as MerchantRole]?.label ?? req.actor!.role,
         kind: req.actor!.kind,
         must_change_password: req.actor!.mustChangePassword,
+        mfa_setup_required: req.actor!.mfaSetupRequired ?? false,
+        two_factor: req.actor!.kind === "merchant_user" ? users.get("merchant", req.actor!.id!)?.totp_enabled === 1 : null,
       },
       permissions: req.permissions,
       roles: Object.fromEntries(Object.entries(MERCHANT_ROLES).map(([k, v]) => [k, { label: v.label, permissions: v.permissions }])),
@@ -289,6 +318,32 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       sessions.endForUser(u.id);
       log(req, "user.reset_password", u.id, { email: u.email });
       return { temporary_password: password };
+    });
+
+    registerMfaSelfService(api, {
+      base: "/dashboard/api",
+      scope: "merchant",
+      issuer: (req) => `Bizhub (${req.merchant!.name})`,
+      users,
+      sessions,
+      required: (req) => req.merchant!.require_2fa === 1,
+      log: (req, action, target, details) => log(req, action, target, details),
+    });
+
+    api.post<{ Params: { id: string } }>("/dashboard/api/users/:id/reset-2fa", { preHandler: need("users.manage") }, async (req) => {
+      const u = ownUser(req, req.params.id);
+      users.disableTotp("merchant", u.id);
+      sessions.endForUser(u.id);
+      log(req, "user.2fa_reset", u.id, { email: u.email });
+      return { ok: true };
+    });
+
+    // Shop-wide security policy, set by whoever manages staff.
+    api.patch("/dashboard/api/security", { preHandler: need("users.manage") }, async (req) => {
+      const { require_2fa } = z.object({ require_2fa: z.boolean() }).parse(req.body);
+      merchants.update(req.merchant!.id, { require_2fa });
+      log(req, "merchant.security_policy", req.merchant!.id, { require_2fa });
+      return { require_2fa };
     });
 
     api.get("/dashboard/api/audit", { preHandler: need("audit.view") }, async (req) => {

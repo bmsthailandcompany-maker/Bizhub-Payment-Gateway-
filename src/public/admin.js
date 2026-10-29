@@ -6,6 +6,7 @@
   const api = makeApi("/admin/console/api", () => showLogin());
   const S = { me: null, tab: "overview", live: true, filter: "", q: "", merchantFilter: "", list: [], hasMore: false, merchants: [] };
   const can = (p) => S.me && S.me.permissions.includes(p);
+  const MFA_REASON = "ระบบกำหนดให้บัญชีแอดมินทุกคนใช้การยืนยันตัวตน 2 ชั้น กรุณาตั้งค่าให้เสร็จก่อนเริ่มใช้งาน";
   let main;
 
   function showLogin() {
@@ -15,7 +16,11 @@
       subtitle: "สำหรับผู้ดูแลระบบเกตเวย์",
       altLabel: "เข้าด้วย ADMIN_TOKEN",
       altField: { name: "admin_token", label: "ADMIN_TOKEN", placeholder: "ค่าจากไฟล์ .env", hint: "ใช้ตอนติดตั้งครั้งแรกเพื่อสร้างบัญชีแอดมิน หลังจากนั้นควรใช้บัญชีส่วนตัว" },
-      onSubmit: async (body) => { await api("/login", { method: "POST", body, allow401: true }); await boot(); },
+      onSubmit: async (body) => {
+        const r = await api("/login", { method: "POST", body, allow401: true });
+        if (r.mfa_required) return UI.mfaPrompt(root, { api, token: r.mfa_token, onDone: boot, onBack: showLogin });
+        await boot();
+      },
     });
   }
 
@@ -163,7 +168,7 @@
           h("div", { class: "card tile" }, h("div", { class: "label" }, "รอตรวจ"), h("div", { class: "value" }, String(m.summary.awaiting_review))),
           h("div", { class: "card tile" }, h("div", { class: "label" }, "รอชำระ"), h("div", { class: "value" }, String(m.summary.pending)))),
         manage ? h("div", { class: "actions" },
-          h("button", { class: "btn", type: "button", onclick: () => UI.formModal("แก้ไข " + m.name, merchantFields(m), "บันทึก", async (v, mm) => {
+          h("button", { class: "btn", type: "button", onclick: () => UI.formModal("แก้ไข " + m.name, [...merchantFields(m), { name: "require_2fa", label: "บังคับพนักงานของร้านใช้ 2FA", type: "checkbox", value: m.require_2fa }], "บันทึก", async (v, mm) => {
             await api("/merchants/" + id, { method: "PATCH", body: nullIfEmpty(v) }); mm.close(); toast("บันทึกแล้ว"); await render(); viewMerchants.reload && viewMerchants.reload();
           }) }, "แก้ไขข้อมูล"),
           h("button", { class: "btn " + (m.active ? "bad" : "good"), type: "button", onclick: async () => {
@@ -184,6 +189,7 @@
           h("dt", {}, "PromptPay"), h("dd", {}, m.promptpay_id || "-"),
           h("dt", {}, "บัญชีธนาคาร"), h("dd", {}, m.bank_account ? [m.bank_account.bank_name, m.bank_account.account_no, m.bank_account.account_name].filter(Boolean).join(" · ") : "-"),
           h("dt", {}, "Webhook URL"), h("dd", {}, m.webhook_url || "-"),
+          h("dt", {}, "บังคับ 2FA"), h("dd", {}, m.require_2fa ? "ใช่" : "ไม่"),
           h("dt", {}, "API key ที่ใช้งาน"), h("dd", { class: "mono" }, m.api_keys.map((k) => `${k.key_prefix}… (${k.livemode ? "live" : "test"})`).join(", ") || "-"),
           h("dt", {}, "สร้างเมื่อ"), h("dd", {}, dt(m.created_at))),
         h("div", { class: "row" },
@@ -293,16 +299,25 @@
 
   // ---------- my account ----------
   function viewAccount() {
-    main.replaceChildren(h("h1", {}, "บัญชีของฉัน"), h("div", { class: "card narrow" },
+    const mfaBox = h("div", { class: "narrow" });
+    if (S.me.user.kind === "admin_user") UI.twoFactorCard(mfaBox, { api }).catch((ex) => mfaBox.replaceChildren(h("p", { class: "error" }, ex.message)));
+    main.replaceChildren(h("h1", {}, "บัญชีของฉัน"), h("div", { class: "grid" }, h("div", { class: "card narrow" },
       h("dl", { class: "kv" }, h("dt", {}, "ชื่อ"), h("dd", {}, S.me.user.name), h("dt", {}, "บทบาท"), h("dd", {}, S.me.user.role_label)),
       S.me.user.kind === "admin_user"
         ? h("div", { class: "row mt12" }, h("button", { class: "btn", type: "button", onclick: () => UI.changePasswordView(root, { api, forced: false, onDone: () => go("account") }) }, "เปลี่ยนรหัสผ่าน"))
-        : h("div", { class: "notice mt12" }, "คุณเข้าด้วย ADMIN_TOKEN ซึ่งมีสิทธิ์สูงสุด แนะนำให้สร้างบัญชีแอดมินส่วนตัวที่เมนู \"บัญชีแอดมิน\" แล้วใช้บัญชีนั้นแทน")));
+        : h("div", { class: "notice mt12" }, "คุณเข้าด้วย ADMIN_TOKEN ซึ่งมีสิทธิ์สูงสุด แนะนำให้สร้างบัญชีแอดมินส่วนตัวที่เมนู \"บัญชีแอดมิน\" แล้วใช้บัญชีนั้นแทน")), mfaBox));
   }
 
   async function boot() {
     try { S.me = await api("/me", { allow401: true }); } catch { return showLogin(); }
     if (S.me.user.must_change_password) return UI.changePasswordView(root, { api, forced: true, onDone: boot });
+    if (S.me.user.mfa_setup_required) {
+      return UI.mfaSetupRequiredView(root, {
+        api, onDone: boot,
+        onLogout: async () => { await api("/logout", { method: "POST" }).catch(() => {}); showLogin(); },
+        reason: MFA_REASON,
+      });
+    }
     go(S.tab);
   }
   boot();

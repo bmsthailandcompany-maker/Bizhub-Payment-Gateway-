@@ -6,6 +6,7 @@
   const api = makeApi("/dashboard/api", () => showLogin());
   const S = { me: null, tab: "overview", filter: "", q: "", list: [], hasMore: false, summary: null };
   const can = (p) => S.me && S.me.permissions.includes(p);
+  const MFA_REASON = "ร้านนี้กำหนดให้พนักงานทุกคนใช้การยืนยันตัวตน 2 ชั้น กรุณาตั้งค่าให้เสร็จก่อนเริ่มใช้งาน";
   let main;
 
   function showLogin() {
@@ -15,7 +16,11 @@
       subtitle: "เข้าสู่ระบบด้วยบัญชีพนักงานของร้าน",
       altLabel: "เข้าด้วย Secret key (เจ้าของร้าน)",
       altField: { name: "secret_key", label: "Secret key", placeholder: "sk_live_... หรือ sk_test_...", hint: "ใช้ sk_test_ เพื่อดูข้อมูลทดสอบ หรือ sk_live_ เพื่อดูข้อมูลจริง ระบบไม่เก็บ key ไว้ในเบราว์เซอร์" },
-      onSubmit: async (body) => { await api("/login", { method: "POST", body, allow401: true }); await boot(); },
+      onSubmit: async (body) => {
+        const r = await api("/login", { method: "POST", body, allow401: true });
+        if (r.mfa_required) return UI.mfaPrompt(root, { api, token: r.mfa_token, onDone: boot, onBack: showLogin });
+        await boot();
+      },
     });
   }
 
@@ -164,8 +169,19 @@
   // ---------- team ----------
   async function viewTeam() {
     const box = h("div");
+    const policy = h("input", { type: "checkbox", checked: S.me.merchant.require_2fa ? true : null, onchange: async () => {
+      const want = policy.checked;
+      if (want && !confirm("บังคับให้พนักงานทุกคนใช้ 2FA? คนที่ยังไม่ได้ตั้งค่าจะต้องตั้งค่าก่อนใช้งานครั้งถัดไป")) { policy.checked = false; return; }
+      try { await api("/security", { method: "PATCH", body: { require_2fa: want } }); S.me.merchant.require_2fa = want; toast("บันทึกแล้ว"); }
+      catch (ex) { policy.checked = !want; toast(ex.message); }
+    } });
     main.replaceChildren(h("h1", {}, "พนักงาน"),
-      h("div", { class: "grid" }, h("div", { class: "notice info small" }, "เพิ่มบัญชีให้พนักงานแต่ละคน แล้วเลือกบทบาทตามหน้าที่ ทุกการกระทำจะถูกบันทึกในประวัติการใช้งานพร้อมชื่อผู้ทำ"), box));
+      h("div", { class: "grid" },
+        h("div", { class: "notice info small" }, "เพิ่มบัญชีให้พนักงานแต่ละคน แล้วเลือกบทบาทตามหน้าที่ ทุกการกระทำจะถูกบันทึกในประวัติการใช้งานพร้อมชื่อผู้ทำ"),
+        h("div", { class: "card grid" }, h("h2", { class: "m0" }, "นโยบายความปลอดภัย"),
+          h("label", { class: "check" }, policy, "บังคับให้พนักงานทุกคนใช้การยืนยันตัวตน 2 ชั้น (2FA)"),
+          h("p", { class: "small muted m0" }, "พนักงานต้องใช้รหัส 6 หลักจากแอป Authenticator ทุกครั้งที่เข้าสู่ระบบ (การเข้าด้วย Secret key ไม่ได้รับผลกระทบ)")),
+        box));
     await UI.usersPanel(box, { api, base: "/users", roles: S.me.roles, title: "บัญชีพนักงาน", canManage: true });
   }
 
@@ -192,6 +208,11 @@
           UI.changePasswordView(root, { api, forced: false, onDone: () => go("settings") });
         } }, "เปลี่ยนรหัสผ่าน")) : null),
     ];
+    if (S.me.user.kind === "merchant_user") {
+      const mfaBox = h("div");
+      cards.push(mfaBox);
+      UI.twoFactorCard(mfaBox, { api }).catch((ex) => mfaBox.replaceChildren(h("p", { class: "error" }, ex.message)));
+    }
     if (can("settings.view")) {
       cards.push(h("div", { class: "card" }, h("h2", {}, "ข้อมูลรับเงิน"), h("dl", { class: "kv" },
         h("dt", {}, "ชื่อร้าน"), h("dd", {}, m.name),
@@ -227,6 +248,13 @@
   async function boot() {
     try { S.me = await api("/me", { allow401: true }); } catch { return showLogin(); }
     if (S.me.user.must_change_password) return UI.changePasswordView(root, { api, forced: true, onDone: boot });
+    if (S.me.user.mfa_setup_required) {
+      return UI.mfaSetupRequiredView(root, {
+        api, onDone: boot,
+        onLogout: async () => { await api("/logout", { method: "POST" }).catch(() => {}); showLogin(); },
+        reason: MFA_REASON,
+      });
+    }
     S.summary = can("payments.view") ? await api("/summary").catch(() => null) : null;
     go(S.tab);
   }

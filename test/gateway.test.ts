@@ -52,6 +52,7 @@ beforeEach(async () => {
     omise: null,
     slipVerifier: null,
     workerIntervalMs: 0,
+    requireAdmin2fa: false,
   };
   gw = await buildApp(config, {
     db: openDb(":memory:"),
@@ -373,7 +374,7 @@ test("auto-verify: overpayment is not silently accepted", async () => {
 test("without a live verifier configured, slips go to manual review", async () => {
   await gw.app.close();
   gw = await buildApp(
-    { port: 0, publicBaseUrl: "https://pay.example.com", adminToken: ADMIN, dataDir, defaultPaymentTtlSeconds: 900, omise: null, slipVerifier: null, workerIntervalMs: 0 },
+    { port: 0, publicBaseUrl: "https://pay.example.com", adminToken: ADMIN, dataDir, defaultPaymentTtlSeconds: 900, omise: null, slipVerifier: null, workerIntervalMs: 0, requireAdmin2fa: false },
     { db: openDb(":memory:"), fetchImpl: fakeFetch, logger: false },
   );
   const { pay } = await livePayment();

@@ -44,4 +44,4 @@ const merchantFields = {
 };
 
 export const createMerchantSchema = z.object(merchantFields);
-export const updateMerchantSchema = z.object({ ...merchantFields, active: z.boolean() }).partial();
+export const updateMerchantSchema = z.object({ ...merchantFields, active: z.boolean(), require_2fa: z.boolean() }).partial();

@@ -69,7 +69,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const payments = new PaymentService(db, config, webhooks, { test: new MockCardProvider(), live: liveCard });
   const slips = new SlipService(db, payments, merchants, { test: new MockSlipVerifier(), live: liveSlip });
   const users = new UserService(db);
-  const sessions = new SessionService(db, config.adminToken);
+  const sessions = new SessionService(db, config.adminToken, config.requireAdmin2fa);
   const audit = new AuditService(db);
   const limiter = new LoginLimiter();
 
@@ -103,7 +103,18 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   await app.register(adminRoutes, { db, adminToken: config.adminToken, merchants, payments });
   await app.register(assetRoutes);
   await app.register(dashboardRoutes, { db, merchants, payments, slips, users, sessions, audit, limiter });
-  await app.register(adminConsoleRoutes, { db, adminToken: config.adminToken, merchants, payments, slips, users, sessions, audit, limiter });
+  await app.register(adminConsoleRoutes, {
+    db,
+    adminToken: config.adminToken,
+    merchants,
+    payments,
+    slips,
+    users,
+    sessions,
+    audit,
+    limiter,
+    requireAdmin2fa: config.requireAdmin2fa,
+  });
   await app.register(checkoutRoutes, { merchants, payments, slips, omisePublicKey: config.omise?.publicKey ?? null });
 
   const runJobs = async () => {

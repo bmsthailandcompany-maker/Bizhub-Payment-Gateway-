@@ -155,3 +155,10 @@ dl.kv dt { color:var(--muted); font-size:13px; } dl.kv dd { margin:0; word-break
 .drawer .card { padding:14px; }
 .drawer .c-last { display:none; }
 .drawer table.list .actions { flex-direction:column; align-items:stretch; }
+
+/* two-factor */
+.otp { font-family:ui-monospace, monospace; font-size:22px; letter-spacing:6px; text-align:center; max-width:220px; }
+.codes { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; }
+.codes code { font-family:ui-monospace, monospace; font-size:15px; padding:8px; text-align:center; border-radius:6px; background:var(--surface-2); border:1px solid var(--line); }
+ol.steps { margin:0; padding-left:20px; display:grid; gap:14px; }
+ol.steps li > input { margin-top:8px; }

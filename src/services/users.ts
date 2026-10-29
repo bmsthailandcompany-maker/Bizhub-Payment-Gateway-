@@ -1,7 +1,9 @@
 import type { Db } from "../db.ts";
 import { now } from "../db.ts";
+import QRCode from "qrcode";
 import { hashPassword, passwordProblem, temporaryPassword, verifyPassword } from "../auth/passwords.ts";
-import { newId } from "../ids.ts";
+import { newRecoveryCodes, newTotpSecret, normalizeRecoveryCode, otpauthUri, verifyTotp } from "../auth/totp.ts";
+import { newId, sha256 } from "../ids.ts";
 import { PaymentError } from "./payments.ts";
 
 export type UserScope = "merchant" | "admin";
@@ -17,6 +19,11 @@ export interface UserRow {
   active: number;
   last_login_at: string | null;
   created_at: string;
+  totp_secret: string | null;
+  totp_enabled: number;
+  totp_last_step: number | null;
+  /** JSON array of sha256 hashes of unused recovery codes. */
+  recovery_codes: string | null;
 }
 
 const TABLE: Record<UserScope, string> = { merchant: "merchant_users", admin: "admin_users" };
@@ -29,6 +36,7 @@ export function serializeUser(u: UserRow) {
     role: u.role,
     active: u.active === 1,
     must_change_password: u.must_change_password === 1,
+    two_factor: u.totp_enabled === 1,
     last_login_at: u.last_login_at,
     created_at: u.created_at,
   };
@@ -129,6 +137,90 @@ export class UserService {
     this.db
       .prepare(`UPDATE ${TABLE[scope]} SET password_hash = ?, must_change_password = 0 WHERE id = ?`)
       .run(await hashPassword(next), id);
+  }
+
+  // ---- two-factor authentication ----
+
+  private require(scope: UserScope, id: string): UserRow {
+    const u = this.get(scope, id);
+    if (!u) throw new PaymentError(404, "not_found", "ไม่พบบัญชีผู้ใช้");
+    return u;
+  }
+
+  /** Starts (or restarts) enrolment: stores a fresh secret and returns what the authenticator app needs. */
+  async beginTotp(scope: UserScope, id: string, issuer: string): Promise<{ secret: string; uri: string; qr: string }> {
+    const u = this.require(scope, id);
+    if (u.totp_enabled === 1) throw new PaymentError(409, "already_enabled", "เปิดใช้ 2FA อยู่แล้ว");
+    const secret = newTotpSecret();
+    this.db.prepare(`UPDATE ${TABLE[scope]} SET totp_secret = ?, totp_last_step = NULL WHERE id = ?`).run(secret, id);
+    const uri = otpauthUri(issuer, u.email, secret);
+    return { secret, uri, qr: await QRCode.toDataURL(uri, { margin: 1, width: 240 }) };
+  }
+
+  /** Finishes enrolment with a code from the app; returns one-time recovery codes. */
+  confirmTotp(scope: UserScope, id: string, code: string): string[] {
+    const u = this.require(scope, id);
+    if (u.totp_enabled === 1) throw new PaymentError(409, "already_enabled", "เปิดใช้ 2FA อยู่แล้ว");
+    if (!u.totp_secret) throw new PaymentError(400, "not_started", "กรุณาเริ่มตั้งค่า 2FA ใหม่");
+    const step = verifyTotp(u.totp_secret, code.trim(), null);
+    if (step === null) throw new PaymentError(400, "invalid_code", "รหัสไม่ถูกต้อง ตรวจสอบเวลาในมือถือแล้วลองใหม่");
+    const codes = newRecoveryCodes();
+    this.db
+      .prepare(`UPDATE ${TABLE[scope]} SET totp_enabled = 1, totp_last_step = ?, recovery_codes = ? WHERE id = ?`)
+      .run(step, JSON.stringify(codes.map((c) => sha256(normalizeRecoveryCode(c)))), id);
+    return codes;
+  }
+
+  /**
+   * Checks a second factor: a 6-digit app code, or a recovery code (which is then used up).
+   * Returns how it was satisfied, or null when the code is wrong.
+   */
+  verifySecondFactor(scope: UserScope, id: string, code: string): "totp" | "recovery" | null {
+    const u = this.require(scope, id);
+    if (u.totp_enabled !== 1 || !u.totp_secret) return null;
+    const trimmed = code.trim();
+    const step = verifyTotp(u.totp_secret, trimmed.replace(/\s/g, ""), u.totp_last_step);
+    if (step !== null) {
+      // Only move forward, so two concurrent requests with the same code cannot both pass.
+      const r = this.db
+        .prepare(`UPDATE ${TABLE[scope]} SET totp_last_step = ? WHERE id = ? AND (totp_last_step IS NULL OR totp_last_step < ?)`)
+        .run(step, id, step);
+      return r.changes === 1 ? "totp" : null;
+    }
+    const hashes: string[] = u.recovery_codes ? JSON.parse(u.recovery_codes) : [];
+    const h = sha256(normalizeRecoveryCode(trimmed));
+    if (!hashes.includes(h)) return null;
+    const left = JSON.stringify(hashes.filter((x) => x !== h));
+    const r = this.db
+      .prepare(`UPDATE ${TABLE[scope]} SET recovery_codes = ? WHERE id = ? AND recovery_codes = ?`)
+      .run(left, id, u.recovery_codes);
+    return r.changes === 1 ? "recovery" : null;
+  }
+
+  recoveryCodesLeft(scope: UserScope, id: string): number {
+    const u = this.require(scope, id);
+    return u.recovery_codes ? (JSON.parse(u.recovery_codes) as string[]).length : 0;
+  }
+
+  /** Replaces recovery codes after proving possession of the second factor. */
+  regenerateRecoveryCodes(scope: UserScope, id: string, code: string): string[] {
+    if (!this.verifySecondFactor(scope, id, code)) throw new PaymentError(400, "invalid_code", "รหัสไม่ถูกต้อง");
+    const codes = newRecoveryCodes();
+    this.db
+      .prepare(`UPDATE ${TABLE[scope]} SET recovery_codes = ? WHERE id = ?`)
+      .run(JSON.stringify(codes.map((c) => sha256(normalizeRecoveryCode(c)))), id);
+    return codes;
+  }
+
+  /** Turns 2FA off: by the user (with a code) or by whoever manages accounts (lost phone). */
+  disableTotp(scope: UserScope, id: string, code?: string): void {
+    this.require(scope, id);
+    if (code !== undefined && !this.verifySecondFactor(scope, id, code)) {
+      throw new PaymentError(400, "invalid_code", "รหัสไม่ถูกต้อง");
+    }
+    this.db
+      .prepare(`UPDATE ${TABLE[scope]} SET totp_enabled = 0, totp_secret = NULL, totp_last_step = NULL, recovery_codes = NULL WHERE id = ?`)
+      .run(id);
   }
 
   touchLogin(scope: UserScope, id: string): void {
