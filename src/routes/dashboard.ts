@@ -4,6 +4,7 @@ import { DUMMY_HASH, verifyPassword } from "../auth/passwords.ts";
 import { MERCHANT_ROLES, type MerchantPermission, type MerchantRole } from "../auth/permissions.ts";
 import type { Db } from "../db.ts";
 import type { AuditService } from "../services/audit.ts";
+import { type BankService, serializeConnection } from "../services/bank.ts";
 import { MAX_EXPORT_ROWS, paymentExportTable } from "../services/export.ts";
 import type { MerchantService } from "../services/merchants.ts";
 import { serializeMerchant } from "../services/merchants.ts";
@@ -13,6 +14,7 @@ import type { LoginLimiter, SessionService } from "../services/sessions.ts";
 import type { SlipService } from "../services/slips.ts";
 import { serializeUser, type UserService } from "../services/users.ts";
 import { mfaSetupPaths, registerMfaLogin, registerMfaSelfService } from "./mfa.ts";
+import { isValidBillerId } from "../promptpay.ts";
 import { createPaymentSchema, listPaymentsQuery, rejectSchema } from "./schemas.ts";
 import {
   appShell,
@@ -47,6 +49,8 @@ export interface DashboardDeps {
   sessions: SessionService;
   audit: AuditService;
   limiter: LoginLimiter;
+  bank: BankService;
+  publicBaseUrl: string;
 }
 
 /**
@@ -55,7 +59,7 @@ export interface DashboardDeps {
  * secret key also works and acts as the owner.
  */
 export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps) {
-  const { db, merchants, payments, slips, users, sessions, audit, limiter } = deps;
+  const { db, merchants, payments, slips, users, sessions, audit, limiter, bank } = deps;
 
   app.get("/dashboard", async (_req, reply) => pageHeaders(reply).send(appShell("Bizhub Dashboard", "dashboard.js")));
 
@@ -344,6 +348,59 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       merchants.update(req.merchant!.id, { require_2fa });
       log(req, "merchant.security_policy", req.merchant!.id, { require_2fa });
       return { require_2fa };
+    });
+
+    // ---- linked bank account (incoming-money notifications) ----
+    const notifyUrl = (id: string) => `${deps.publicBaseUrl}/bank/notify/${id}`;
+    const connectSchema = z.object({
+      label: z.string().min(1).max(120),
+      biller_id: z.string().refine(isValidBillerId, "Biller ID ต้องเป็นตัวเลข 15 หลัก").nullable().optional(),
+    });
+
+    api.get("/dashboard/api/bank", { preHandler: need("settings.view") }, async (req) => {
+      const c = bank.active(req.merchant!.id, req.livemode!);
+      return {
+        connection: c ? { ...serializeConnection(c), notify_url: notifyUrl(c.id) } : null,
+        events: bank.events(req.merchant!.id, req.livemode!),
+      };
+    });
+
+    api.post("/dashboard/api/bank", { preHandler: need("bank.manage") }, async (req, reply) => {
+      const c = bank.connect(req.merchant!.id, req.livemode!, connectSchema.parse(req.body));
+      log(req, "bank.connect", c.id, { label: c.label, biller: c.biller_id ? "yes" : "no" });
+      return reply.code(201).send({ ...serializeConnection(c), notify_url: notifyUrl(c.id), secret: c.secret });
+    });
+
+    const activeOr404 = (req: FastifyRequest) => {
+      const c = bank.active(req.merchant!.id, req.livemode!);
+      if (!c) throw new PaymentError(404, "not_connected", "ยังไม่ได้เชื่อมบัญชีธนาคาร");
+      return c;
+    };
+
+    api.post("/dashboard/api/bank/rotate-secret", { preHandler: need("bank.manage") }, async (req) => {
+      const c = activeOr404(req);
+      log(req, "bank.rotate_secret", c.id);
+      return { secret: bank.rotateSecret(c.id) };
+    });
+
+    api.post("/dashboard/api/bank/disconnect", { preHandler: need("bank.manage") }, async (req) => {
+      const c = activeOr404(req);
+      bank.disconnect(c.id);
+      log(req, "bank.disconnect", c.id);
+      return { ok: true };
+    });
+
+    api.post<{ Params: { id: string } }>("/dashboard/api/bank/events/:id/assign", { preHandler: need("payments.review") }, async (req) => {
+      const { payment_id } = z.object({ payment_id: z.string().max(64) }).parse(req.body);
+      const r = bank.assign(req.merchant!.id, req.livemode!, req.params.id, own(req, payment_id));
+      log(req, "bank.assign", payment_id, { event: req.params.id, outcome: r.outcome });
+      return r;
+    });
+
+    api.post("/dashboard/api/bank/simulate", { preHandler: need("bank.manage") }, async (req) => {
+      if (req.livemode) throw new PaymentError(400, "test_mode_only", "จำลองเงินเข้าได้เฉพาะโหมดทดสอบ");
+      const { payment_id, amount } = z.object({ payment_id: z.string().max(64), amount: z.number().int().positive().optional() }).parse(req.body);
+      return bank.simulate(activeOr404(req), own(req, payment_id), amount);
     });
 
     api.get("/dashboard/api/audit", { preHandler: need("audit.view") }, async (req) => {

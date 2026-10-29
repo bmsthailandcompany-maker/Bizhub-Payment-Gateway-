@@ -29,6 +29,7 @@
     { id: "payments", label: "รายการชำระเงิน", perm: "payments.view" },
     { id: "create", label: "สร้างลิงก์ชำระเงิน", perm: "payments.create" },
     { id: "team", label: "พนักงาน", perm: "users.manage" },
+    { id: "bank", label: "บัญชีธนาคาร", perm: "settings.view" },
     { id: "audit", label: "ประวัติการใช้งาน", perm: "audit.view" },
     { id: "settings", label: "ตั้งค่า", perm: null },
   ];
@@ -60,7 +61,7 @@
     if (!t || (t.perm && !can(t.perm))) tab = TABS.find((x) => !x.perm || can(x.perm)).id;
     S.tab = tab;
     renderShell();
-    const views = { overview: viewOverview, payments: viewPayments, create: viewCreate, team: viewTeam, audit: viewAudit, settings: viewSettings };
+    const views = { overview: viewOverview, payments: viewPayments, create: viewCreate, team: viewTeam, bank: viewBank, audit: viewAudit, settings: viewSettings };
     Promise.resolve(views[tab]()).catch((ex) => main.replaceChildren(h("p", { class: "error" }, ex.message)));
   }
 
@@ -186,6 +187,121 @@
   }
 
   // ---------- audit ----------
+  // ---------- linked bank account ----------
+  const BANK_OUTCOME = {
+    matched: ["on", "ยืนยันรายการแล้ว"], duplicate: ["", "แจ้งซ้ำ (ไม่นับซ้ำ)"], amount_mismatch: ["awaiting_review", "ยอดไม่ตรง ส่งให้ตรวจ"],
+    already_paid: ["", "รายการชำระไปแล้ว"], paid_after_close: ["off", "เงินเข้าหลังรายการปิด"], ambiguous: ["awaiting_review", "มีหลายรายการยอดเท่ากัน"],
+    unmatched: ["off", "จับคู่ไม่ได้"], processing: ["", "กำลังประมวลผล"],
+  };
+  const signatureHelp = (url) => h("details", { class: "small" }, h("summary", {}, "วิธีให้ธนาคารหรือระบบตัวกลางส่งแจ้งเตือนเข้ามา"),
+    h("div", { class: "grid mt8" },
+      h("p", { class: "m0" }, "ส่ง POST แบบ JSON มาที่ URL ด้านบน 1 ครั้งต่อ 1 รายการเงินเข้า พร้อม header Bizhub-Signature: t=<เวลา unix>,v1=<HMAC-SHA256 ของ \"t.body\" ด้วยรหัสลับ>"),
+      h("pre", { class: "secret-box" }, JSON.stringify({ trans_ref: "เลขที่รายการจากธนาคาร", amount: "150.00", paid_at: "2026-10-29T13:45:00+07:00", ref1: "รหัสชำระเงิน (ถ้ามี)", payer_name: "ชื่อผู้โอน (ถ้ามี)" }, null, 2)),
+      h("p", { class: "m0 muted" }, "ส่งรายการเดิมซ้ำได้ ระบบจะไม่นับซ้ำ (ดูจาก trans_ref) · ปลายทาง: " + url)));
+
+  /** Lets staff pick which open payment an unmatched transfer pays for (same amount listed first). */
+  async function assignEvent(e) {
+    const r = await api("/payments?status=pending&limit=100");
+    const r2 = await api("/payments?status=awaiting_review&limit=100");
+    const open = r.data.concat(r2.data).sort((a, b) => (a.amount === e.amount ? -1 : 0) - (b.amount === e.amount ? -1 : 0));
+    if (!open.length) return toast("ไม่มีรายการที่รอชำระให้จับคู่");
+    UI.formModal(`จับคู่เงินเข้า ${UI.baht(e.amount)}`, [
+      { name: "payment_id", label: `เลือกรายการที่ ${e.payer_name || "ผู้โอน"} ชำระ`, type: "select", value: open[0].id,
+        options: open.map((p) => [p.id, `${UI.baht(p.amount)}${p.amount === e.amount ? " ✓ ยอดตรง" : ""} · ${p.reference || p.description || p.id} · ${dt(p.created_at)}`]) },
+    ], "ยืนยันการจับคู่", async (v, m) => {
+      const res = await api(`/bank/events/${e.id}/assign`, { method: "POST", body: v });
+      m.close(); toast(BANK_OUTCOME[res.outcome]?.[1] || res.outcome); viewBank();
+    });
+  }
+
+  async function viewBank() {
+    const box = h("div", { class: "grid" }, h("p", { class: "muted" }, "กำลังโหลด…"));
+    main.replaceChildren(h("h1", {}, "บัญชีธนาคาร" + (S.me.livemode ? "" : " (โหมดทดสอบ)")), box);
+    const res = await api("/bank");
+    const c = res.connection;
+    const manage = can("bank.manage");
+    const cards = [];
+    if (!c) {
+      cards.push(h("div", { class: "card grid" },
+        h("h2", { class: "m0" }, "ยืนยันเงินเข้าอัตโนมัติ ไม่ต้องรอสลิป"),
+        h("p", { class: "m0" }, "เมื่อเชื่อมบัญชีแล้ว ธนาคาร (หรือระบบที่ส่งต่อการแจ้งเตือนยอดเข้า) จะแจ้งทุกครั้งที่มีเงินเข้า แล้วระบบจะจับคู่กับรายการชำระเงินและยืนยันให้ทันที"),
+        h("ul", { class: "m0 small" },
+          h("li", {}, h("b", {}, "มี Biller ID จากธนาคาร: "), "QR ของทุกรายการจะมีรหัสชำระเงินฝังอยู่ ธนาคารแจ้งกลับพร้อมรหัสนี้ จับคู่ได้แม่นยำ 100%"),
+          h("li", {}, h("b", {}, "ไม่มี Biller ID: "), "ระบบจับคู่จากยอดเงิน ถ้ามีรายการรอชำระยอดเดียวกันหลายรายการ จะไม่เดาและให้คุณเลือกเอง")),
+        manage ? null : h("div", { class: "notice small" }, "เฉพาะเจ้าของร้านที่เชื่อมบัญชีได้")));
+      if (manage) {
+        const label = h("input", { type: "text", id: "bank-label", required: true, maxlength: "120", placeholder: "เช่น กสิกรไทย ออมทรัพย์ 123-4-xxxxx-0" });
+        const biller = h("input", { type: "text", id: "bank-biller", inputmode: "numeric", maxlength: "15", placeholder: "เลข 15 หลัก (ถ้ามี)" });
+        const err = h("p", { class: "error", role: "alert" });
+        const btn = h("button", { class: "btn primary", type: "submit" }, "เชื่อมบัญชี");
+        cards.push(h("form", { class: "card grid narrow", onsubmit: async (e) => {
+          e.preventDefault(); err.textContent = ""; btn.disabled = true;
+          try {
+            const r = await api("/bank", { method: "POST", body: { label: label.value.trim(), biller_id: biller.value.trim() || null } });
+            UI.showSecret("เชื่อมบัญชีแล้ว", [["URL สำหรับรับแจ้งเงินเข้า", r.notify_url], ["รหัสลับ (ใช้เซ็นทุกคำขอ)", r.secret]],
+              "นำ URL และรหัสลับนี้ไปตั้งค่าที่ธนาคารหรือระบบตัวกลาง รหัสลับแสดงครั้งเดียว");
+            viewBank();
+          } catch (ex) { err.textContent = ex.message; } finally { btn.disabled = false; }
+        } },
+          h("h2", { class: "m0" }, "เชื่อมบัญชีธนาคาร"),
+          h("label", { class: "f", for: "bank-label" }, "ชื่อบัญชี (ไว้ให้พนักงานจำได้)", label),
+          h("label", { class: "f", for: "bank-biller" }, "Biller ID", biller, h("span", { class: "small muted" }, "ได้จากธนาคารเมื่อสมัครบริการรับชำระผ่าน QR (เช่น K PLUS SHOP / SCB Business) เว้นว่างได้")),
+          err, h("div", { class: "row" }, btn)));
+      }
+    } else {
+      const sim = !S.me.livemode && manage
+        ? (() => {
+          const sel = h("select", { id: "sim-pay", "aria-label": "เลือกรายการ" }, h("option", { value: "" }, "กำลังโหลดรายการที่รอชำระ…"));
+          api("/payments?status=pending&limit=20").then((r) => {
+            sel.replaceChildren(...(r.data.length ? r.data.map((p) => h("option", { value: p.id }, `${UI.baht(p.amount)} · ${p.reference || p.description || p.id}`)) : [h("option", { value: "" }, "ไม่มีรายการรอชำระ ลองสร้างลิงก์ก่อน")]));
+          });
+          return h("div", { class: "card grid" }, h("h2", { class: "m0" }, "ทดลองเงินเข้า (โหมดทดสอบ)"),
+            h("p", { class: "m0 small muted" }, "จำลองว่าธนาคารแจ้งเงินเข้าตามยอดของรายการที่เลือก เพื่อดูว่ารายการถูกยืนยันอัตโนมัติ"),
+            h("div", { class: "row" }, h("div", { class: "flex1" }, sel), h("button", { class: "btn primary", type: "button", onclick: async () => {
+              if (!sel.value) return;
+              try { const r = await api("/bank/simulate", { method: "POST", body: { payment_id: sel.value } }); toast(BANK_OUTCOME[r.outcome]?.[1] || r.outcome); viewBank(); }
+              catch (ex) { toast(ex.message); }
+            } }, "จำลองเงินเข้า")));
+        })()
+        : null;
+      cards.push(h("div", { class: "card grid" },
+        h("div", { class: "row" }, h("h2", { class: "m0 flex1" }, c.label), h("span", { class: "status on" }, "เชื่อมแล้ว")),
+        h("dl", { class: "kv" },
+          h("dt", {}, "วิธีจับคู่"), h("dd", {}, c.matching === "reference" ? "รหัสชำระเงินใน QR (Biller ID " + c.biller_id + ")" : "ยอดเงิน (ไม่มี Biller ID)"),
+          h("dt", {}, "แจ้งเตือนล่าสุด"), h("dd", {}, c.last_event_at ? dt(c.last_event_at) : "ยังไม่เคยได้รับ"),
+          h("dt", {}, "เชื่อมเมื่อ"), h("dd", {}, dt(c.created_at))),
+        h("label", { class: "f" }, "URL สำหรับรับแจ้งเงินเข้า", copyField(c.notify_url)),
+        signatureHelp(c.notify_url),
+        manage ? h("div", { class: "actions" },
+          h("button", { class: "btn", type: "button", onclick: async () => {
+            if (!confirm("เปลี่ยนรหัสลับ? ต้องนำรหัสใหม่ไปตั้งที่ธนาคาร/ระบบตัวกลาง ไม่เช่นนั้นการแจ้งเตือนจะถูกปฏิเสธ")) return;
+            const r = await api("/bank/rotate-secret", { method: "POST", body: {} });
+            UI.showSecret("รหัสลับใหม่", [["รหัสลับ", r.secret]]);
+          } }, "เปลี่ยนรหัสลับ"),
+          h("button", { class: "btn bad", type: "button", onclick: async () => {
+            if (!confirm("ยกเลิกการเชื่อมบัญชี? การแจ้งเตือนเงินเข้าจะถูกปฏิเสธ และ QR ใหม่จะกลับไปเป็น PromptPay ปกติ")) return;
+            await api("/bank/disconnect", { method: "POST", body: {} }); toast("ยกเลิกการเชื่อมแล้ว"); viewBank();
+          } }, "ยกเลิกการเชื่อม")) : null), sim);
+    }
+    const ev = res.events;
+    cards.push(h("div", { class: "card grid" }, h("h2", { class: "m0" }, "รายการเงินเข้าที่ธนาคารแจ้ง"),
+      ev.length ? h("div", { class: "table-wrap" }, h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, h("th", {}, "เวลาโอน"), h("th", { class: "num" }, "ยอด"), h("th", {}, "ผู้โอน / อ้างอิง"), h("th", {}, "ผล"), h("th", {}, "รายการ"))),
+        h("tbody", {}, ev.map((e) => {
+          const [cls, label] = BANK_OUTCOME[e.outcome] || ["", e.outcome];
+          return h("tr", { class: e.payment_id ? "click" : "", onclick: e.payment_id ? () => openPayment(e.payment_id) : null },
+            h("td", { class: "small" }, dt(e.paid_at)), h("td", { class: "num" }, UI.baht(e.amount)),
+            h("td", { class: "small" }, e.payer_name || "-", h("div", { class: "muted mono" }, e.ref1 || e.trans_ref)),
+            h("td", {}, h("span", { class: "status " + cls }, label)),
+            h("td", { class: "small" }, e.payment_id ? (e.payment_reference || e.payment_description || e.payment_id)
+              : can("payments.review") && ["unmatched", "ambiguous"].includes(e.outcome)
+                ? h("button", { class: "btn sm", type: "button", onclick: (ev) => { ev.stopPropagation(); assignEvent(e); } }, "จับคู่กับรายการ")
+                : "-"));
+        }))))
+        : h("div", { class: "empty" }, c ? "ยังไม่มีแจ้งเตือนเงินเข้า" : "เชื่อมบัญชีเพื่อเริ่มรับแจ้งเตือน")));
+    box.replaceChildren(...cards.filter(Boolean));
+  }
+
   async function viewAudit() {
     const box = h("div", { class: "card grid" });
     main.replaceChildren(h("h1", {}, "ประวัติการใช้งาน"), box);

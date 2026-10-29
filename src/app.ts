@@ -9,6 +9,8 @@ import { adminRoutes } from "./routes/admin.ts";
 import { checkoutRoutes, MAX_SLIP_BYTES } from "./routes/checkout.ts";
 import { adminConsoleRoutes } from "./routes/admin-console.ts";
 import { assetRoutes } from "./routes/assets.ts";
+import { bankNotifyRoutes } from "./routes/bank.ts";
+import { BankService } from "./services/bank.ts";
 import { dashboardRoutes } from "./routes/dashboard.ts";
 import { AuditService } from "./services/audit.ts";
 import { LoginLimiter, SessionService } from "./services/sessions.ts";
@@ -40,6 +42,7 @@ export interface Gateway {
   slips: SlipService;
   users: UserService;
   audit: AuditService;
+  bank: BankService;
   /** Runs one round of background work (expiry sweep + webhook delivery). */
   runJobs(): Promise<void>;
 }
@@ -72,6 +75,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const sessions = new SessionService(db, config.adminToken, config.requireAdmin2fa);
   const audit = new AuditService(db);
   const limiter = new LoginLimiter();
+  const bank = new BankService(db, payments, audit);
 
   const app = Fastify({ logger: deps.logger ?? true, bodyLimit: 1024 * 1024, trustProxy: true });
   await app.register(multipart, { limits: { fileSize: MAX_SLIP_BYTES, files: 1, fields: 5 } });
@@ -102,7 +106,19 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   await app.register(merchantApiRoutes, { merchants, payments, slips });
   await app.register(adminRoutes, { db, adminToken: config.adminToken, merchants, payments });
   await app.register(assetRoutes);
-  await app.register(dashboardRoutes, { db, merchants, payments, slips, users, sessions, audit, limiter });
+  await app.register(dashboardRoutes, {
+    db,
+    merchants,
+    payments,
+    slips,
+    users,
+    sessions,
+    audit,
+    limiter,
+    bank,
+    publicBaseUrl: config.publicBaseUrl,
+  });
+  await app.register(bankNotifyRoutes, { bank });
   await app.register(adminConsoleRoutes, {
     db,
     adminToken: config.adminToken,
@@ -114,6 +130,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     audit,
     limiter,
     requireAdmin2fa: config.requireAdmin2fa,
+    bank,
   });
   await app.register(checkoutRoutes, { merchants, payments, slips, omisePublicKey: config.omise?.publicKey ?? null });
 
@@ -123,5 +140,5 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     await webhooks.processDue();
   };
 
-  return { app, db, merchants, payments, webhooks, slips, users, audit, runJobs };
+  return { app, db, merchants, payments, webhooks, slips, users, audit, bank, runJobs };
 }

@@ -165,6 +165,7 @@ export class SlipService {
       const slip = decision.slip;
       try {
         const payment = this.payments.transition(id, "succeeded", {
+          confirmed_by: "slip",
           before: () => {
             const used = this.db.prepare("SELECT payment_id FROM used_slips WHERE trans_ref = ?").get(slip.transRef) as
               | { payment_id: string }

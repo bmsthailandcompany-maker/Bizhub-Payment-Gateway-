@@ -130,6 +130,40 @@ CREATE TABLE IF NOT EXISTS audit_log (
 CREATE INDEX IF NOT EXISTS audit_merchant_idx ON audit_log(merchant_id, created_at);
 CREATE INDEX IF NOT EXISTS audit_created_idx ON audit_log(created_at);
 
+-- A merchant's bank account linked for incoming-payment notifications (one per mode).
+CREATE TABLE IF NOT EXISTS bank_connections (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  livemode INTEGER NOT NULL,
+  label TEXT NOT NULL,
+  biller_id TEXT,
+  secret TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  last_event_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bank_connections_active_idx ON bank_connections(merchant_id, livemode) WHERE active = 1;
+
+-- Every incoming-money notification, matched or not, so nothing the bank reports is lost.
+CREATE TABLE IF NOT EXISTS bank_events (
+  id TEXT PRIMARY KEY,
+  connection_id TEXT NOT NULL REFERENCES bank_connections(id),
+  merchant_id TEXT NOT NULL,
+  livemode INTEGER NOT NULL,
+  trans_ref TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  ref1 TEXT,
+  ref2 TEXT,
+  payer_name TEXT,
+  paid_at TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  reason TEXT,
+  payment_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (connection_id, trans_ref)
+);
+CREATE INDEX IF NOT EXISTS bank_events_merchant_idx ON bank_events(merchant_id, created_at);
+
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   merchant_id TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -196,6 +230,10 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["admin_users", "totp_last_step", "INTEGER"],
   ["admin_users", "recovery_codes", "TEXT"],
   ["merchants", "require_2fa", "INTEGER NOT NULL DEFAULT 0"],
+  // Short code embedded in bill-payment QRs (Reference 1) and quoted by bank notifications.
+  ["payments", "ref_code", "TEXT"],
+  // How the money was confirmed: card | slip | bank | manual.
+  ["payments", "confirmed_by", "TEXT"],
 ];
 
 function migrate(db: Db): void {
@@ -204,6 +242,7 @@ function migrate(db: Db): void {
     if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
   db.exec("CREATE INDEX IF NOT EXISTS payments_verify_retry_idx ON payments(status, verify_retry_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS payments_ref_code_idx ON payments(merchant_id, ref_code)");
 }
 
 export function now(): string {

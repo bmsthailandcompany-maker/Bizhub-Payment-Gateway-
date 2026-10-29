@@ -62,3 +62,31 @@ export function buildPromptPayPayload(promptpayId: string, amountSatang?: number
   payload += "6304";
   return payload + crc16(payload);
 }
+
+const BILL_PAYMENT_AID = "A000000677010112";
+
+/** Biller IDs are 15 digits: the 13-digit tax ID plus a 2-digit suffix assigned by the bank. */
+export function isValidBillerId(raw: string): boolean {
+  return /^\d{15}$/.test(raw.replace(/\D/g, ""));
+}
+
+/**
+ * Thai QR "bill payment" payload (tag 30). The bank that issued the Biller ID reports every
+ * payment back with Reference 1, so the gateway can match it to the exact payment.
+ * @param ref1 up to 20 upper-case letters/digits identifying the payment
+ */
+export function buildBillPaymentPayload(billerId: string, ref1: string, amountSatang: number, ref2?: string): string {
+  const biller = billerId.replace(/\D/g, "");
+  if (biller.length !== 15) throw new Error("Biller ID must be 15 digits");
+  if (!/^[A-Z0-9]{1,20}$/.test(ref1)) throw new Error("Reference 1 must be 1-20 upper-case letters or digits");
+  if (ref2 !== undefined && !/^[A-Z0-9]{1,20}$/.test(ref2)) throw new Error("Reference 2 must be 1-20 upper-case letters or digits");
+  let payload =
+    tlv("00", "01") +
+    tlv("01", "12") +
+    tlv("30", tlv("00", BILL_PAYMENT_AID) + tlv("01", biller) + tlv("02", ref1) + (ref2 ? tlv("03", ref2) : "")) +
+    tlv("58", "TH") +
+    tlv("53", "764") +
+    tlv("54", (amountSatang / 100).toFixed(2));
+  payload += "6304";
+  return payload + crc16(payload);
+}

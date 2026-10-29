@@ -6,6 +6,7 @@ import type { Db } from "../db.ts";
 import { now } from "../db.ts";
 import { safeEqual } from "../ids.ts";
 import type { AuditService } from "../services/audit.ts";
+import { type BankService, serializeConnection } from "../services/bank.ts";
 import { MAX_EXPORT_ROWS, paymentExportTable } from "../services/export.ts";
 import type { MerchantService } from "../services/merchants.ts";
 import { serializeMerchant } from "../services/merchants.ts";
@@ -53,6 +54,7 @@ export interface AdminConsoleDeps {
   audit: AuditService;
   limiter: LoginLimiter;
   requireAdmin2fa: boolean;
+  bank: BankService;
 }
 
 /**
@@ -261,6 +263,7 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
         ...serializeMerchant(m),
         api_keys: keys,
         users: users.list("merchant", m.id).map(serializeUser),
+        bank_connections: deps.bank.listForMerchant(m.id).map(serializeConnection),
         summary: payments.summary(m.id, true),
       };
     });

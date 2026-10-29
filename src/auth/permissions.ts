@@ -9,6 +9,7 @@ export const MERCHANT_PERMISSIONS = [
   "webhooks.secret",
   "users.manage",
   "audit.view",
+  "bank.manage", // link the shop's bank account for incoming-money notifications
 ] as const;
 export type MerchantPermission = (typeof MERCHANT_PERMISSIONS)[number];
 

@@ -1,10 +1,11 @@
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "../config.ts";
 import type { Db } from "../db.ts";
 import { now, tx } from "../db.ts";
 import { newId, sha256 } from "../ids.ts";
-import { buildPromptPayPayload } from "../promptpay.ts";
+import { buildBillPaymentPayload, buildPromptPayPayload } from "../promptpay.ts";
 import type { CardChargeResult, CardProvider } from "../providers/card.ts";
 import type { MerchantRow } from "./merchants.ts";
 import type { WebhookService } from "./webhooks.ts";
@@ -38,6 +39,8 @@ export interface PaymentRow {
   verify_retry_at: string | null;
   verify_retries: number;
   slip_trans_ref: string | null;
+  ref_code: string | null;
+  confirmed_by: "card" | "slip" | "bank" | "manual" | null;
   expires_at: string;
   paid_at: string | null;
   created_at: string;
@@ -102,7 +105,20 @@ export const SLIP_MIME_TYPES: Record<string, string> = {
   "application/pdf": ".pdf",
 };
 
+/** Ten characters, upper-case letters and digits without look-alikes, valid as a QR Reference 1. */
+function newRefCode(): string {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from(crypto.randomBytes(10), (b) => alphabet[b % alphabet.length]).join("");
+}
+
 export class PaymentService {
+  /** Returns the Biller ID of the merchant's linked bank account, if any (set by the bank module). */
+  private billerLookup: (merchantId: string, livemode: boolean) => string | null = () => null;
+
+  setBillerLookup(fn: (merchantId: string, livemode: boolean) => string | null): void {
+    this.billerLookup = fn;
+  }
+
   constructor(
     private readonly db: Db,
     private readonly config: Config,
@@ -193,14 +209,21 @@ export class PaymentService {
       const ts = now();
       const ttl = input.expires_in ?? this.config.defaultPaymentTtlSeconds;
       const expiresAt = new Date(Date.now() + ttl * 1000).toISOString();
+      const refCode = newRefCode();
+      // With a linked Biller ID the QR carries this payment's code, so the bank's notification names it exactly.
+      const billerId = input.method === "promptpay" ? this.billerLookup(merchant.id, livemode) : null;
       const promptpayPayload =
-        input.method === "promptpay" ? buildPromptPayPayload(merchant.promptpay_id!, input.amount) : null;
+        input.method !== "promptpay"
+          ? null
+          : billerId
+            ? buildBillPaymentPayload(billerId, refCode, input.amount)
+            : buildPromptPayPayload(merchant.promptpay_id!, input.amount);
 
       this.db
         .prepare(
           `INSERT INTO payments (id, merchant_id, livemode, amount, currency, method, status, reference, description,
-             metadata, return_url, promptpay_payload, expires_at, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)`,
+             metadata, return_url, promptpay_payload, ref_code, expires_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           id,
@@ -214,6 +237,7 @@ export class PaymentService {
           JSON.stringify(input.metadata ?? {}),
           input.return_url ?? null,
           promptpayPayload,
+          refCode,
           expiresAt,
           ts,
           ts,
@@ -238,7 +262,12 @@ export class PaymentService {
   transition(
     id: string,
     to: PaymentStatus,
-    extra: { failure_reason?: string; provider_ref?: string; before?: () => void } = {},
+    extra: {
+      failure_reason?: string;
+      provider_ref?: string;
+      confirmed_by?: PaymentRow["confirmed_by"];
+      before?: () => void;
+    } = {},
   ): PaymentRow {
     return tx(this.db, () => {
       extra.before?.();
@@ -255,10 +284,23 @@ export class PaymentService {
           `UPDATE payments SET status = ?, updated_at = ?,
              paid_at = CASE WHEN ? = 'succeeded' THEN ? ELSE paid_at END,
              failure_reason = CASE WHEN ? = 'succeeded' THEN NULL ELSE COALESCE(?, failure_reason) END,
-             provider_ref = COALESCE(?, provider_ref)
+             provider_ref = COALESCE(?, provider_ref),
+             confirmed_by = COALESCE(?, confirmed_by)
            WHERE id = ? AND status IN (${from.map(() => "?").join(",")})${guard}`,
         )
-        .run(to, ts, to, ts, to, extra.failure_reason ?? null, extra.provider_ref ?? null, id, ...from, ...guardArgs);
+        .run(
+          to,
+          ts,
+          to,
+          ts,
+          to,
+          extra.failure_reason ?? null,
+          extra.provider_ref ?? null,
+          extra.confirmed_by ?? null,
+          id,
+          ...from,
+          ...guardArgs,
+        );
       const payment = this.get(id);
       if (!payment) throw new PaymentError(404, "not_found", "Payment not found");
       if (result.changes === 0) {
@@ -272,7 +314,7 @@ export class PaymentService {
   /** Merchant confirms money arrived for a PromptPay / bank transfer payment. */
   approve(p: PaymentRow): PaymentRow {
     if (p.method === "card") throw new PaymentError(400, "invalid_method", "Card payments are confirmed by the card provider");
-    return this.transition(p.id, "succeeded");
+    return this.transition(p.id, "succeeded", { confirmed_by: "manual" });
   }
 
   /** Merchant rejects a slip that is waiting for review. */
@@ -401,7 +443,7 @@ export class PaymentService {
 
   private applyCardResult(id: string, result: CardChargeResult): PaymentRow {
     const providerRef = result.providerRef ?? undefined;
-    if (result.status === "succeeded") return this.transition(id, "succeeded", { provider_ref: providerRef });
+    if (result.status === "succeeded") return this.transition(id, "succeeded", { provider_ref: providerRef, confirmed_by: "card" });
     if (result.status === "failed") {
       // A declined card leaves the payment open so the customer can retry with another card until it expires.
       this.db
@@ -437,6 +479,8 @@ export class PaymentService {
       promptpay: p.promptpay_payload
         ? { payload: p.promptpay_payload, qr_image_url: `${base}/checkout/${p.id}/qr.png` }
         : null,
+      payment_code: p.ref_code,
+      confirmed_by: p.confirmed_by,
       has_slip: p.slip_path !== null,
       slip_verification:
         p.verify_status && p.verify_status !== "verifying"

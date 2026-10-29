@@ -190,6 +190,9 @@
           h("dt", {}, "บัญชีธนาคาร"), h("dd", {}, m.bank_account ? [m.bank_account.bank_name, m.bank_account.account_no, m.bank_account.account_name].filter(Boolean).join(" · ") : "-"),
           h("dt", {}, "Webhook URL"), h("dd", {}, m.webhook_url || "-"),
           h("dt", {}, "บังคับ 2FA"), h("dd", {}, m.require_2fa ? "ใช่" : "ไม่"),
+          h("dt", {}, "เชื่อมบัญชีธนาคาร"), h("dd", {}, (m.bank_connections || []).length
+            ? m.bank_connections.map((b) => `${b.label} (${b.livemode ? "จริง" : "ทดสอบ"}, ${b.matching === "reference" ? "Biller ID" : "จับคู่ยอด"}${b.last_event_at ? ", แจ้งล่าสุด " + dt(b.last_event_at) : ""})`).join(" · ")
+            : "ยังไม่เชื่อม"),
           h("dt", {}, "API key ที่ใช้งาน"), h("dd", { class: "mono" }, m.api_keys.map((k) => `${k.key_prefix}… (${k.livemode ? "live" : "test"})`).join(", ") || "-"),
           h("dt", {}, "สร้างเมื่อ"), h("dd", {}, dt(m.created_at))),
         h("div", { class: "row" },

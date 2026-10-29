@@ -53,7 +53,9 @@
     verifier_not_configured: "ยังไม่ได้เปิดการตรวจสลิปอัตโนมัติ กรุณาตรวจเอง",
     pdf_not_verifiable: "สลิปเป็น PDF ตรวจอัตโนมัติไม่ได้", slip_date_missing: "อ่านวันที่โอนจากสลิปไม่ได้",
     payment_state_changed: "สถานะรายการเปลี่ยนระหว่างตรวจ",
+    bank_amount_too_low: "ธนาคารแจ้งยอดเข้าน้อยกว่ายอดที่ต้องชำระ", bank_amount_too_high: "ธนาคารแจ้งยอดเข้ามากกว่ายอดที่ต้องชำระ",
   };
+  const CONFIRMED = { bank: "แจ้งเตือนเงินเข้าจากธนาคาร", slip: "ตรวจสลิปอัตโนมัติ", card: "ผู้ให้บริการบัตร", manual: "พนักงานยืนยันเอง" };
   const VERIFY = { verified: "ตรวจสลิปผ่าน", rejected: "ตรวจสลิปไม่ผ่าน", needs_review: "ต้องตรวจสอบเอง" };
   const reasonText = (r) => (r && (REASON[r] || r)) || "";
   const ACTIONS = {
@@ -67,7 +69,9 @@
     "auth.2fa_failed": "ใส่รหัส 2FA ผิด", "admin.2fa_failed": "แอดมินใส่รหัส 2FA ผิด", "user.2fa_enabled": "เปิดใช้ 2FA", "user.2fa_disabled": "ปิด 2FA",
     "user.2fa_recovery_regenerated": "สร้างรหัสกู้คืนใหม่", "user.2fa_reset": "ล้าง 2FA ของพนักงาน", "admin_user.2fa_enabled": "แอดมินเปิดใช้ 2FA",
     "admin_user.2fa_disabled": "แอดมินปิด 2FA", "admin_user.2fa_recovery_regenerated": "แอดมินสร้างรหัสกู้คืนใหม่", "admin_user.2fa_reset": "ล้าง 2FA ของแอดมิน",
-    "merchant_user.2fa_reset": "ล้าง 2FA ของบัญชีร้านค้า", "merchant.security_policy": "เปลี่ยนนโยบายความปลอดภัย", "admin_user.reset_password": "รีเซ็ตรหัสผ่านแอดมิน", "admin_user.password_changed": "แอดมินเปลี่ยนรหัสผ่าน",
+    "merchant_user.2fa_reset": "ล้าง 2FA ของบัญชีร้านค้า", "merchant.security_policy": "เปลี่ยนนโยบายความปลอดภัย",
+    "bank.connect": "เชื่อมบัญชีธนาคาร", "bank.disconnect": "ยกเลิกการเชื่อมบัญชีธนาคาร", "bank.rotate_secret": "เปลี่ยนรหัสลับบัญชีธนาคาร",
+    "payment.bank_confirmed": "ธนาคารยืนยันเงินเข้า", "bank.assign": "จับคู่เงินเข้ากับรายการ", "bank.notification": "ธนาคารแจ้งเงินเข้า (จับคู่ไม่ได้)", "admin_user.reset_password": "รีเซ็ตรหัสผ่านแอดมิน", "admin_user.password_changed": "แอดมินเปลี่ยนรหัสผ่าน",
   };
 
   function statusBadge(s) {
@@ -465,6 +469,8 @@
         showMerchant ? [h("dt", {}, "ร้านค้า"), h("dd", {}, p.merchant_name || p.merchant_id)] : null,
         h("dt", {}, "รหัสรายการ"), h("dd", { class: "mono" }, p.id),
         h("dt", {}, "เลขอ้างอิง"), h("dd", {}, p.reference || "-"),
+        p.payment_code ? [h("dt", {}, "รหัสชำระเงิน"), h("dd", { class: "mono" }, p.payment_code)] : null,
+        p.confirmed_by ? [h("dt", {}, "ยืนยันโดย"), h("dd", {}, CONFIRMED[p.confirmed_by] || p.confirmed_by)] : null,
         h("dt", {}, "รายละเอียด"), h("dd", {}, p.description || "-"),
         h("dt", {}, "สร้างเมื่อ"), h("dd", {}, dt(p.created_at)),
         h("dt", {}, p.status === "succeeded" ? "ชำระเมื่อ" : "หมดอายุ"), h("dd", {}, dt(p.status === "succeeded" ? p.paid_at : p.expires_at)),
@@ -561,7 +567,7 @@
   }
 
   const PERM_LABEL = {
-    "payments.view": "ดูรายการชำระเงิน", "payments.create": "สร้างลิงก์ชำระเงิน", "payments.review": "ยืนยัน/ปฏิเสธสลิป", "payments.cancel": "ยกเลิกรายการ",
+    "bank.manage": "เชื่อมบัญชีธนาคาร", "payments.view": "ดูรายการชำระเงิน", "payments.create": "สร้างลิงก์ชำระเงิน", "payments.review": "ยืนยัน/ปฏิเสธสลิป", "payments.cancel": "ยกเลิกรายการ",
     "payments.export": "ส่งออก Excel/CSV", "settings.view": "ดูการตั้งค่า", "webhooks.secret": "ดู webhook secret", "users.manage": "จัดการบัญชีพนักงาน",
     "audit.view": "ดูประวัติการใช้งาน", "merchants.view": "ดูร้านค้า", "merchants.manage": "สร้าง/แก้ไขร้านค้า, ออก key", "merchant_users.manage": "จัดการบัญชีของร้านค้า",
     "webhooks.manage": "ส่ง webhook ซ้ำ", "admins.manage": "จัดการบัญชีแอดมิน",
