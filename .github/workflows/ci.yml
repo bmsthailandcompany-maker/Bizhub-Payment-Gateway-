@@ -17,16 +17,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # node:sqlite without a flag needs 22.13+
           node-version: "22.x"
           cache: npm
 
       # Lets the XLSX export test open the generated file with a real spreadsheet reader.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install openpyxl
