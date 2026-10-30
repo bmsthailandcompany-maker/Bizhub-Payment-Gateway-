@@ -397,6 +397,14 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       return r;
     });
 
+    // The shop's standing "I have paid" page for customers who transfer by account number.
+    api.patch("/dashboard/api/notice", { preHandler: need("bank.manage") }, async (req) => {
+      const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+      merchants.update(req.merchant!.id, { notice_enabled: enabled });
+      log(req, enabled ? "notice.enable" : "notice.disable", req.merchant!.id);
+      return { enabled, url: `${deps.publicBaseUrl}/notice/${req.merchant!.id}` };
+    });
+
     api.post("/dashboard/api/bank/simulate", { preHandler: need("bank.manage") }, async (req) => {
       if (req.livemode) throw new PaymentError(400, "test_mode_only", "จำลองเงินเข้าได้เฉพาะโหมดทดสอบ");
       const { payment_id, amount } = z.object({ payment_id: z.string().max(64), amount: z.number().int().positive().optional() }).parse(req.body);

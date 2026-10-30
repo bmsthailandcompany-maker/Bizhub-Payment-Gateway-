@@ -214,13 +214,37 @@
     });
   }
 
+  /** The shop's standing "I have paid" page: on/off, link to share and a QR to print. */
+  function noticeCard() {
+    const m = S.me.merchant;
+    const url = location.origin + "/notice/" + m.id;
+    const box = h("div", { class: "card grid" });
+    const render = () => {
+      const on = !!m.notice_enabled;
+      const toggle = h("input", { type: "checkbox", id: "notice-on", checked: on ? true : null, disabled: can("bank.manage") ? null : true, onchange: async () => {
+        try { await api("/notice", { method: "PATCH", body: { enabled: toggle.checked } }); m.notice_enabled = toggle.checked; toast(toggle.checked ? "เปิดหน้าแจ้งชำระเงินแล้ว" : "ปิดหน้าแจ้งชำระเงินแล้ว"); render(); }
+        catch (ex) { toggle.checked = on; toast(ex.message); }
+      } });
+      box.replaceChildren(
+        h("div", { class: "row" }, h("h2", { class: "m0 flex1" }, "หน้าแจ้งชำระเงิน (สำหรับลูกค้าที่โอนเข้าเลขบัญชี)"), on ? h("span", { class: "status on" }, "เปิดอยู่") : h("span", { class: "status" }, "ปิดอยู่")),
+        h("p", { class: "m0 small muted" }, "ลิงก์เดียวใช้ได้ตลอด ส่งให้ลูกค้าทาง LINE หรือพิมพ์ QR ไว้ในบิล ลูกค้าที่โอนแล้วกรอกยอด เลขบิล และแนบสลิป ระบบตรวจกับธนาคารและบันทึกเข้ารายการชำระเงินให้ทันที"),
+        h("label", { class: "check" }, toggle, "เปิดให้ลูกค้าแจ้งชำระเงินผ่านลิงก์นี้"),
+        on ? h("div", { class: "row" },
+          h("img", { class: "qr-out", src: "/notice/" + m.id + "/qr.png", alt: "QR หน้าแจ้งชำระเงิน" }),
+          h("div", { class: "grid flex1" }, copyField(url), h("div", { class: "row" }, h("a", { class: "btn", href: url, target: "_blank", rel: "noopener" }, "เปิดหน้าแจ้งชำระเงิน")),
+            h("p", { class: "m0 small muted" }, "รายการที่ลูกค้าแจ้งจะแสดงในเมนู \"รายการชำระเงิน\" โดยใช้เลขบิลที่ลูกค้ากรอกเป็นเลขอ้างอิง"))) : null);
+    };
+    render();
+    return box;
+  }
+
   async function viewBank() {
     const box = h("div", { class: "grid" }, h("p", { class: "muted" }, "กำลังโหลด…"));
     main.replaceChildren(h("h1", {}, "บัญชีธนาคาร" + (S.me.livemode ? "" : " (โหมดทดสอบ)")), box);
     const res = await api("/bank");
     const c = res.connection;
     const manage = can("bank.manage");
-    const cards = [];
+    const cards = [noticeCard()];
     if (!c) {
       cards.push(h("div", { class: "card grid" },
         h("h2", { class: "m0" }, "ยืนยันเงินเข้าอัตโนมัติ ไม่ต้องรอสลิป"),

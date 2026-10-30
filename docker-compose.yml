@@ -1,0 +1,34 @@
+# Production setup: the gateway behind Caddy, which gets and renews the HTTPS certificate itself.
+# 1. Point your domain's DNS (A record) at this server.  2. Fill in .env (see .env.example).
+# 3. docker compose up -d --build
+services:
+  gateway:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      PORT: "3000"
+      PUBLIC_BASE_URL: https://${DOMAIN}
+    volumes:
+      - gateway-data:/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - gateway
+
+volumes:
+  gateway-data:
+  caddy-data:
+  caddy-config:

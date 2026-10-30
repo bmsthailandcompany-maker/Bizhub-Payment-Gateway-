@@ -234,6 +234,10 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["payments", "ref_code", "TEXT"],
   // How the money was confirmed: card | slip | bank | manual.
   ["payments", "confirmed_by", "TEXT"],
+  // Public "I have paid" page where customers who transferred by account number upload their slip.
+  ["merchants", "notice_enabled", "INTEGER NOT NULL DEFAULT 0"],
+  // Set when a slip image was deleted under the retention policy.
+  ["payments", "slip_purged_at", "TEXT"],
 ];
 
 function migrate(db: Db): void {

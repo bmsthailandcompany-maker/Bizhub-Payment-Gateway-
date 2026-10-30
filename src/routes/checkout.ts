@@ -90,7 +90,7 @@ export async function checkoutRoutes(
 }
 
 /** Checks magic bytes so a renamed executable cannot be stored as a "slip". */
-function looksLike(mime: string, data: Buffer): boolean {
+export function looksLike(mime: string, data: Buffer): boolean {
   const starts = (...bytes: number[]) => bytes.every((b, i) => data[i] === b);
   switch (mime) {
     case "image/jpeg":

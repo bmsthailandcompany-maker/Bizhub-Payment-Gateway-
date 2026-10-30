@@ -12,6 +12,12 @@ export interface Config {
     | { provider: "easyslip"; apiKey: string; baseUrl?: string }
     | { provider: "slipok"; branchId: string; apiKey: string }
     | null;
+  /** Delete slip images of closed payments after this many days (0 keeps them). */
+  slipRetentionDays?: number;
+  /** Hours between automatic database backups into DATA_DIR/backups (0 disables). */
+  backupIntervalHours?: number;
+  /** How many backups to keep. */
+  backupKeep?: number;
   /** Admin console accounts must set up two-factor authentication before using the console. */
   requireAdmin2fa: boolean;
   /** Interval for background jobs (webhook delivery, expiry sweep). 0 disables them. */
@@ -35,6 +41,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     omise: omisePublic && omiseSecret ? { publicKey: omisePublic, secretKey: omiseSecret } : null,
     workerIntervalMs: Number(env.WORKER_INTERVAL_MS ?? 5000),
     requireAdmin2fa: env.ADMIN_REQUIRE_2FA === "true",
+    slipRetentionDays: Number(env.SLIP_RETENTION_DAYS ?? 0),
+    backupIntervalHours: Number(env.BACKUP_INTERVAL_HOURS ?? 24),
+    backupKeep: Number(env.BACKUP_KEEP ?? 14),
   };
 }
 

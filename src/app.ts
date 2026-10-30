@@ -10,7 +10,9 @@ import { checkoutRoutes, MAX_SLIP_BYTES } from "./routes/checkout.ts";
 import { adminConsoleRoutes } from "./routes/admin-console.ts";
 import { assetRoutes } from "./routes/assets.ts";
 import { bankNotifyRoutes } from "./routes/bank.ts";
+import { noticeRoutes } from "./routes/notice.ts";
 import { BankService } from "./services/bank.ts";
+import { MaintenanceService } from "./services/maintenance.ts";
 import { dashboardRoutes } from "./routes/dashboard.ts";
 import { AuditService } from "./services/audit.ts";
 import { LoginLimiter, SessionService } from "./services/sessions.ts";
@@ -43,6 +45,7 @@ export interface Gateway {
   users: UserService;
   audit: AuditService;
   bank: BankService;
+  maintenance: MaintenanceService;
   /** Runs one round of background work (expiry sweep + webhook delivery). */
   runJobs(): Promise<void>;
 }
@@ -76,6 +79,13 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const audit = new AuditService(db);
   const limiter = new LoginLimiter();
   const bank = new BankService(db, payments, audit);
+  const maintenance = new MaintenanceService(db, {
+    dataDir: config.dataDir,
+    slipDir: payments.slipDir,
+    slipRetentionDays: config.slipRetentionDays ?? 0,
+    backupIntervalHours: config.backupIntervalHours ?? 0,
+    backupKeep: config.backupKeep ?? 14,
+  });
 
   const app = Fastify({ logger: deps.logger ?? true, bodyLimit: 1024 * 1024, trustProxy: true });
   await app.register(multipart, { limits: { fileSize: MAX_SLIP_BYTES, files: 1, fields: 5 } });
@@ -119,6 +129,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     publicBaseUrl: config.publicBaseUrl,
   });
   await app.register(bankNotifyRoutes, { bank });
+  await app.register(noticeRoutes, { merchants, payments, slips, audit, publicBaseUrl: config.publicBaseUrl });
   await app.register(adminConsoleRoutes, {
     db,
     adminToken: config.adminToken,
@@ -137,8 +148,11 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const runJobs = async () => {
     payments.sweepExpired();
     await slips.retryDue();
+    const m = maintenance.run();
+    if (m.backup) app.log.info({ file: m.backup }, "database backup written");
+    if (m.purged) app.log.info({ count: m.purged }, "old slip images deleted under the retention policy");
     await webhooks.processDue();
   };
 
-  return { app, db, merchants, payments, webhooks, slips, users, audit, bank, runJobs };
+  return { app, db, merchants, payments, webhooks, slips, users, audit, bank, maintenance, runJobs };
 }

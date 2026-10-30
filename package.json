@@ -20,12 +20,12 @@
     "@fastify/multipart": "^9.4.0",
     "fastify": "^5.12.7",
     "qrcode": "^1.5.4",
+    "tsx": "^4.23.15",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
     "@types/qrcode": "^1.5.6",
-    "tsx": "^4.23.15",
     "typescript": "^5.9.3"
   }
 }

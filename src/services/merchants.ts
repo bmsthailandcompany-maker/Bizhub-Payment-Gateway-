@@ -13,6 +13,7 @@ export interface MerchantRow {
   webhook_secret: string;
   active: number;
   require_2fa: number;
+  notice_enabled: number;
   created_at: string;
 }
 
@@ -42,6 +43,7 @@ export function serializeMerchant(m: MerchantRow) {
     webhook_url: m.webhook_url,
     active: m.active === 1,
     require_2fa: m.require_2fa === 1,
+    notice_enabled: m.notice_enabled === 1,
     created_at: m.created_at,
   };
 }
@@ -81,7 +83,10 @@ export class MerchantService {
     });
   }
 
-  update(id: string, input: Partial<MerchantInput> & { active?: boolean; require_2fa?: boolean }): MerchantRow | undefined {
+  update(
+    id: string,
+    input: Partial<MerchantInput> & { active?: boolean; require_2fa?: boolean; notice_enabled?: boolean },
+  ): MerchantRow | undefined {
     const current = this.get(id);
     if (!current) return undefined;
     const next = {
@@ -89,10 +94,11 @@ export class MerchantService {
       ...input,
       active: input.active === undefined ? current.active : input.active ? 1 : 0,
       require_2fa: input.require_2fa === undefined ? current.require_2fa : input.require_2fa ? 1 : 0,
+      notice_enabled: input.notice_enabled === undefined ? current.notice_enabled : input.notice_enabled ? 1 : 0,
     };
     this.db
       .prepare(
-        `UPDATE merchants SET name=?, promptpay_id=?, bank_name=?, bank_account_no=?, bank_account_name=?, webhook_url=?, active=?, require_2fa=? WHERE id=?`,
+        `UPDATE merchants SET name=?, promptpay_id=?, bank_name=?, bank_account_no=?, bank_account_name=?, webhook_url=?, active=?, require_2fa=?, notice_enabled=? WHERE id=?`,
       )
       .run(
         next.name,
@@ -103,6 +109,7 @@ export class MerchantService {
         next.webhook_url ?? null,
         next.active,
         next.require_2fa,
+        next.notice_enabled,
         id,
       );
     return this.get(id);
