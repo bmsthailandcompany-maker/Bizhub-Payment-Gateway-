@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
-const TYPES: Record<string, string> = { ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8" };
+const TYPES: Record<string, string> = { ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml" };
 
 /** Serves the dashboards' static scripts and styles (an explicit allowlist, loaded once at startup). */
 export async function assetRoutes(app: FastifyInstance) {
