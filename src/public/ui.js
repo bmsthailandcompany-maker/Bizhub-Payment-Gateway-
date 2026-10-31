@@ -206,7 +206,6 @@
       h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),
       h("h1",{},"เข้าสู่ระบบ BIZHUB PAY"),
       h("p",{class:"login-subtitle"},"แพลตฟอร์มชำระเงินและจัดการธุรกิจสำหรับทุกบทบาท"),
-      h("div",{class:"login-roles"},h("span",{},"Admin"),h("span",{},"เจ้าของร้าน"),h("span",{},"พนักงาน")),
       h("label",{class:"f"},"อีเมล / User ID",email),
       h("label",{class:"f"},"รหัสผ่าน",pw),
       err,btn);
