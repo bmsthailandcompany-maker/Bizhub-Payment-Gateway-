@@ -39,18 +39,12 @@
   function renderShell() {
     const m = S.me.merchant;
     const review = S.summary?.awaiting_review || 0;
-    const modeSwitch = S.me.user.kind === "merchant_user"
-      ? h("span", { class: "mode-switch", role: "group", "aria-label": "โหมดข้อมูล" },
-        [[true, "ข้อมูลจริง"], [false, "ทดสอบ"]].map(([live, label]) => h("button", { type: "button", "aria-pressed": String(S.me.livemode === live), onclick: async () => {
-          if (S.me.livemode === live) return;
-          await api("/mode", { method: "POST", body: { livemode: live } });
-          S.me.livemode = live; S.summary = null; S.list = []; go(S.tab);
-        } }, label)))
-      : h("span", { class: "pill " + (S.me.livemode ? "live" : "test") }, S.me.livemode ? "ใช้งานจริง" : "โหมดทดสอบ");
+    const modeSwitch = S.me.livemode ? null :
+      h("span",{class:"pill test",role:"status"},"โหมดทดสอบ — ยังไม่ใช่ข้อมูลจริง");
     main = UI.shell(root, {
-      brand: "Bizhub", subtitle: m.name,
+      brand: "BIZHUB PAY", subtitle: null,
       extra: modeSwitch,
-      user: S.me.user,
+      user: { ...S.me.user, name: S.me.user.name || m.name, role_label: S.me.user.role_label || "บัญชีร้านค้า" },
       tabs: TABS.filter((t) => (!t.perm || can(t.perm)) && (!t.when || t.when())).map((t) => ({ ...t, badge: t.id === "payments" && review ? review : null })),
       current: S.tab,
       onTab: go,
@@ -555,6 +549,15 @@
         onLogout: async () => { await api("/logout", { method: "POST" }).catch(() => {}); showLogin(); },
         reason: MFA_REASON,
       });
+    }
+    // Prefer production data for approved merchant accounts. Never mislabel test data as real.
+    if (!S.me.livemode && S.me.user.kind === "merchant_user" && S.me.merchant.kyc.status === "approved") {
+      try {
+        await api("/mode", {method:"POST",body:{livemode:true}});
+        S.me = await api("/me");
+      } catch (error) {
+        console.warn("Could not switch to live data", error);
+      }
     }
     S.summary = can("payments.view") ? await api("/summary").catch(() => null) : null;
     go(S.tab);
