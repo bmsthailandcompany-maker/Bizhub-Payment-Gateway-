@@ -69,6 +69,40 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
 
   app.get("/dashboard", async (_req, reply) => pageHeaders(reply).send(appShell("Bizhub Dashboard", "dashboard.js")));
 
+  // Unified staff login for admin, owner and merchant employees.
+  app.post("/dashboard/api/unified-login", async (req, reply) => {
+    if (!csrfOk(req)) throw new PaymentError(403, "forbidden", "Missing dashboard header");
+    const { email, password } = z.object({email:z.string().email().max(200),password:z.string().min(1).max(200)}).strict().parse(req.body);
+    const key = loginKey(req,email);
+    if (limiter.blocked(key)) throw new PaymentError(429,"too_many_attempts","เข้าสู่ระบบผิดหลายครั้ง กรุณารอ 15 นาทีแล้วลองใหม่");
+    const admin = users.findByEmail("admin",email);
+    const merchant = users.findByEmail("merchant",email);
+    // Verify both scopes to avoid revealing which kind of account exists.
+    const [adminOk, merchantOk] = await Promise.all([
+      verifyPassword(password,admin?.password_hash ?? DUMMY_HASH),
+      verifyPassword(password,merchant?.password_hash ?? DUMMY_HASH)
+    ]);
+    if (admin && adminOk && admin.active === 1) {
+      limiter.succeed(key);
+      if (admin.totp_enabled === 1) return {mfa_required:true,scope:"admin",mfa_token:sessions.createPending("admin",admin.id)};
+      const token = sessions.create({kind:"admin",userId:admin.id});
+      users.touchLogin("admin",admin.id);
+      setSessionCookie(req,reply,"bizhub_admin","/admin/console",token);
+      return {ok:true,scope:"admin"};
+    }
+    const shop = merchant ? merchants.get(merchant.merchant_id!) : undefined;
+    if (merchant && merchantOk && merchant.active === 1 && shop?.active === 1) {
+      limiter.succeed(key);
+      if (merchant.totp_enabled === 1) return {mfa_required:true,scope:"merchant",mfa_token:sessions.createPending("merchant",merchant.id,merchant.merchant_id!)};
+      const token = sessions.create({kind:"merchant",merchantId:merchant.merchant_id!,userId:merchant.id,livemode:true});
+      users.touchLogin("merchant",merchant.id);
+      setSessionCookie(req,reply,COOKIE,COOKIE_PATH,token);
+      return {ok:true,scope:"merchant"};
+    }
+    limiter.fail(key);
+    throw new PaymentError(401,"unauthorized","อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+  });
+
   app.post("/dashboard/api/login", async (req, reply) => {
     if (!csrfOk(req)) throw new PaymentError(403, "forbidden", "Missing dashboard header");
     const body = loginSchema.parse(req.body);
