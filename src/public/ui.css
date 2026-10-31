@@ -478,3 +478,23 @@ header.top .bar { align-items:center; }
 .merchant-legend-dot.bank_transfer { background:#20c879; }
 @media(max-width:1280px) { .merchant-breakdown-body { grid-template-columns:130px 1fr;gap:12px; } .merchant-donut { width:130px;height:130px; } .merchant-donut-inner { width:83px;height:83px; } }
 @media(max-width:650px) { .merchant-breakdown-body { grid-template-columns:115px 1fr;gap:10px; } .merchant-donut { width:115px;height:115px; } .merchant-donut-inner { width:72px;height:72px; } .merchant-legend-row { font-size:11px; } }
+
+/* Mobile header: left menu, centered brand, right signed-in user. */
+@media(max-width:1079px) {
+ header.top .bar { position:relative;display:grid;grid-template-columns:90px minmax(0,1fr) 110px;min-height:105px;padding:10px 12px;gap:0;align-items:center; }
+ header.top .mobile-menu-btn { grid-column:1;grid-row:1;justify-self:start;z-index:2;white-space:nowrap; }
+ header.top .brand,header.top .brand.admin { grid-column:2;grid-row:1;justify-self:center;width:155px;min-width:0;height:88px;margin:0; }
+ header.top .who { display:block!important;grid-column:3;grid-row:1;text-align:right;font-size:12px;color:#fff;overflow:hidden; }
+ header.top .who b { display:block;color:#fff;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+ header.top .bar>.btn { grid-column:3;grid-row:2;justify-self:end;font-size:11px;padding:5px 7px; }
+ header.top .shop { display:none; }
+ header.top .mode-switch,header.top .pill.test { grid-column:1 / 3;grid-row:2;justify-self:start; }
+ header.top nav.tabs { top:0; }
+}
+@media(max-width:520px) {
+ header.top .bar { grid-template-columns:78px minmax(0,1fr) 88px;min-height:105px;padding:8px; }
+ header.top .brand,header.top .brand.admin { width:125px;height:80px; }
+ header.top .mobile-menu-btn { padding:8px 9px;font-size:12px; }
+ header.top .who { font-size:10px; }
+ header.top .who b { font-size:11px; }
+}
