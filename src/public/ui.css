@@ -633,3 +633,9 @@ header.top .profile-shortcut {background:transparent;border:0;cursor:pointer;pad
 header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {background:#ffffff3d;outline:2px solid #138cef;outline-offset:1px;}
 @media(max-width:1079px) {header.top nav.tabs .nav-brand-wordmark {font-size:27px;}header.top .profile-shortcut {grid-column:3!important;grid-row:1!important;justify-self:end;}}
 @media(min-width:1080px) {header.top nav.tabs .nav-brand-wordmark {display:none;}header.top .profile-shortcut {color:#08275a!important;}}
+
+/* Compact drawer header: reduce original 92px top gap by ~40%. */
+@media(max-width:1079px) {
+ header.top nav.tabs {padding-top:55px!important;}
+ header.top nav.tabs .nav-brand-wordmark {padding-top:0!important;padding-bottom:12px!important;margin-bottom:6px!important;}
+}
