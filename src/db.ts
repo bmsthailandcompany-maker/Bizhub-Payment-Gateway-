@@ -177,6 +177,44 @@ CREATE TABLE IF NOT EXISTS kyc_documents (
 );
 CREATE INDEX IF NOT EXISTS kyc_documents_merchant_idx ON kyc_documents(merchant_id);
 
+-- Hybrid pricing: a monthly fee, a number of included transactions, then a fixed fee per extra
+-- transaction plus an optional percentage of the volume collected. Amounts in satang, exclusive of VAT.
+CREATE TABLE IF NOT EXISTS plans (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  monthly_fee INTEGER NOT NULL,
+  included_transactions INTEGER NOT NULL,
+  per_transaction_fee INTEGER NOT NULL,
+  percent_fee_bps INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+
+-- One invoice per shop per month. Figures are frozen at issue time so later plan edits never change them.
+CREATE TABLE IF NOT EXISTS invoices (
+  id TEXT PRIMARY KEY,
+  number TEXT NOT NULL UNIQUE,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  period TEXT NOT NULL,
+  plan_snapshot TEXT NOT NULL,
+  transaction_count INTEGER NOT NULL,
+  volume INTEGER NOT NULL,
+  monthly_fee INTEGER NOT NULL,
+  usage_fee INTEGER NOT NULL,
+  percent_fee INTEGER NOT NULL,
+  subtotal INTEGER NOT NULL,
+  vat_rate_bps INTEGER NOT NULL,
+  vat INTEGER NOT NULL,
+  total INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  payment_id TEXT,
+  issued_at TEXT NOT NULL,
+  due_at TEXT NOT NULL,
+  paid_at TEXT,
+  UNIQUE (merchant_id, period)
+);
+CREATE INDEX IF NOT EXISTS invoices_status_idx ON invoices(status, due_at);
+
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   merchant_id TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -266,6 +304,8 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["merchants", "kyc_submitted_at", "TEXT"],
   ["merchants", "kyc_reviewed_at", "TEXT"],
   ["merchants", "kyc_reviewed_by", "TEXT"],
+  // Service plan the shop is billed on (null = not billed).
+  ["merchants", "plan_id", "TEXT"],
 ];
 
 function migrate(db: Db): void {

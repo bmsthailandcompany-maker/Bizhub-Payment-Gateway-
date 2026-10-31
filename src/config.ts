@@ -12,6 +12,8 @@ export interface Config {
     | { provider: "easyslip"; apiKey: string; baseUrl?: string }
     | { provider: "slipok"; branchId: string; apiKey: string }
     | null;
+  /** Billing of shops: VAT, due days, the operator's own shop that receives invoice payments, and who issues invoices. */
+  billing?: import("./services/billing.ts").BillingConfig;
   /** Lets shops sign up by themselves at /signup (they stay in test mode until approved). */
   signupEnabled?: boolean;
   /** Who runs this gateway, shown on the public privacy page. */
@@ -50,6 +52,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     requireAdmin2fa: env.ADMIN_REQUIRE_2FA === "true",
     slipRetentionDays: Number(env.SLIP_RETENTION_DAYS ?? 0),
     signupEnabled: env.SIGNUP_ENABLED === "true",
+    billing: {
+      vatRateBps: Math.round(Number(env.VAT_RATE ?? 7) * 100),
+      dueDays: Number(env.INVOICE_DUE_DAYS ?? 7),
+      billingMerchantId: env.BILLING_MERCHANT_ID || null,
+      issuer: { name: env.INVOICE_ISSUER_NAME || env.OPERATOR_NAME || "ผู้ให้บริการระบบ Bizhub", taxId: env.INVOICE_ISSUER_TAX_ID || null, address: env.INVOICE_ISSUER_ADDRESS || null },
+    },
     operatorName: env.OPERATOR_NAME || "ผู้ให้บริการระบบ Bizhub",
     operatorContact: env.OPERATOR_CONTACT || null,
     backupIntervalHours: Number(env.BACKUP_INTERVAL_HOURS ?? 24),

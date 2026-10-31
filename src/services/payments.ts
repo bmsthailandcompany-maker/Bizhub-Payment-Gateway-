@@ -119,6 +119,13 @@ export class PaymentService {
     this.billerLookup = fn;
   }
 
+  /** In-process listeners told about every succeeded payment (e.g. billing marks an invoice paid). */
+  private succeededListeners: ((p: PaymentRow) => void)[] = [];
+
+  onSucceeded(fn: (p: PaymentRow) => void): void {
+    this.succeededListeners.push(fn);
+  }
+
   constructor(
     private readonly db: Db,
     private readonly config: Config,
@@ -307,6 +314,7 @@ export class PaymentService {
         throw new PaymentError(409, "invalid_state", `Cannot change payment from '${payment.status}' to '${to}'`);
       }
       this.webhooks.emit(payment.merchant_id, `payment.${to}`, id, this.serialize(payment));
+      if (to === "succeeded") for (const fn of this.succeededListeners) fn(payment);
       return payment;
     });
   }

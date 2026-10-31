@@ -5,6 +5,8 @@ import { MERCHANT_ROLES, type MerchantPermission, type MerchantRole } from "../a
 import type { Db } from "../db.ts";
 import type { AuditService } from "../services/audit.ts";
 import { type BankService, serializeConnection } from "../services/bank.ts";
+import type { BillingService } from "../services/billing.ts";
+import { INVOICE_DOC_CSP, renderInvoiceDocument } from "./invoice-document.ts";
 import { KYC_DOCUMENT_KINDS, type KycDocumentKind, kycMissing, type KycService } from "../services/kyc.ts";
 import { MAX_EXPORT_ROWS, paymentExportTable } from "../services/export.ts";
 import type { MerchantService } from "../services/merchants.ts";
@@ -53,6 +55,7 @@ export interface DashboardDeps {
   limiter: LoginLimiter;
   bank: BankService;
   kyc: KycService;
+  billing: BillingService;
   publicBaseUrl: string;
 }
 
@@ -62,7 +65,7 @@ export interface DashboardDeps {
  * secret key also works and acts as the owner.
  */
 export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps) {
-  const { db, merchants, payments, slips, users, sessions, audit, limiter, bank, kyc } = deps;
+  const { db, merchants, payments, slips, users, sessions, audit, limiter, bank, kyc, billing } = deps;
 
   app.get("/dashboard", async (_req, reply) => pageHeaders(reply).send(appShell("Bizhub Dashboard", "dashboard.js")));
 
@@ -487,6 +490,28 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       const m = kyc.submit(req.merchant!);
       log(req, "kyc.submitted", m.id);
       return serializeMerchant(m);
+    });
+
+    // ---- the shop's own bill from the gateway operator ----
+    api.get("/dashboard/api/billing", { preHandler: need("billing.view") }, async (req) => ({
+      current: billing.estimate(req.merchant!),
+      invoices: billing.invoices({ merchantId: req.merchant!.id }, 24).map((i) => billing.serializeInvoice(i)),
+    }));
+
+    const ownInvoice = (req: FastifyRequest, id: string) => {
+      const inv = billing.invoice(id);
+      if (!inv || inv.merchant_id !== req.merchant!.id) throw new PaymentError(404, "not_found", "ไม่พบใบแจ้งหนี้");
+      return inv;
+    };
+
+    api.post<{ Params: { id: string } }>("/dashboard/api/invoices/:id/pay", { preHandler: need("billing.view") }, async (req) => ({
+      url: billing.payLink(ownInvoice(req, req.params.id).id),
+    }));
+
+    api.get<{ Params: { id: string } }>("/dashboard/api/invoices/:id/document", { preHandler: need("billing.view") }, async (req, reply) => {
+      const inv = ownInvoice(req, req.params.id);
+      return reply.type("text/html; charset=utf-8").header("Content-Security-Policy", INVOICE_DOC_CSP)
+        .send(renderInvoiceDocument(billing.serializeInvoice(inv), req.merchant!, billing.config.issuer));
     });
 
     api.get("/dashboard/api/audit", { preHandler: need("audit.view") }, async (req) => {

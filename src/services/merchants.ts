@@ -24,6 +24,7 @@ export interface MerchantRow {
   kyc_submitted_at: string | null;
   kyc_reviewed_at: string | null;
   kyc_reviewed_by: string | null;
+  plan_id: string | null;
   created_at: string;
 }
 
@@ -56,6 +57,7 @@ export function serializeMerchant(m: MerchantRow) {
     active: m.active === 1,
     require_2fa: m.require_2fa === 1,
     notice_enabled: m.notice_enabled === 1,
+    plan_id: m.plan_id,
     kyc: {
       status: m.kyc_status,
       business_type: m.business_type,

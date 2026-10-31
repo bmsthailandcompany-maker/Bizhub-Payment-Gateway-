@@ -163,7 +163,10 @@ ${state.omisePublicKey ? `<script nonce="${nonce}" src="https://cdn.omise.co/omi
   function tick() {
     const left = Math.max(0, new Date(S.expiresAt).getTime() - Date.now());
     const m = Math.floor(left / 60000), s = Math.floor((left % 60000) / 1000);
-    const t = $("timer"); if (t) t.textContent = "กรุณาชำระภายใน " + m + ":" + String(s).padStart(2, "0") + " นาที";
+    const t = $("timer");
+    if (t) t.textContent = left > 3600000
+      ? "กรุณาชำระภายใน " + new Date(S.expiresAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Bangkok" })
+      : "กรุณาชำระภายใน " + m + ":" + String(s).padStart(2, "0") + " นาที";
     if (left === 0 && S.status === "pending") poll(); else if (S.status === "pending") setTimeout(tick, 1000);
   }
 

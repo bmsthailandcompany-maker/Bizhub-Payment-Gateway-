@@ -29,6 +29,7 @@
     { id: "merchants", label: "ร้านค้า", perm: "merchants.view" },
     { id: "kyc", label: "คำขอเปิดร้าน", perm: "merchants.view" },
     { id: "payments", label: "รายการชำระเงิน", perm: "payments.view" },
+    { id: "billing", label: "แพ็กเกจและบิล", perm: "merchants.view" },
     { id: "webhooks", label: "Webhook", perm: "merchants.view" },
     { id: "admins", label: "บัญชีแอดมิน", perm: "admins.manage" },
     { id: "audit", label: "ประวัติการใช้งาน", perm: "audit.view" },
@@ -55,7 +56,7 @@
     if (!t || (t.perm && !can(t.perm))) tab = TABS.find((x) => !x.perm || can(x.perm)).id;
     S.tab = tab;
     renderShell(S.badges);
-    const views = { overview: viewOverview, merchants: viewMerchants, kyc: viewKycQueue, payments: viewPayments, webhooks: viewWebhooks, admins: viewAdmins, audit: viewAudit, account: viewAccount };
+    const views = { overview: viewOverview, merchants: viewMerchants, kyc: viewKycQueue, payments: viewPayments, billing: viewBilling, webhooks: viewWebhooks, admins: viewAdmins, audit: viewAudit, account: viewAccount };
     Promise.resolve(views[tab]()).catch((ex) => main.replaceChildren(h("p", { class: "error" }, ex.message)));
   }
 
@@ -192,6 +193,8 @@
           h("dt", {}, "บัญชีธนาคาร"), h("dd", {}, m.bank_account ? [m.bank_account.bank_name, m.bank_account.account_no, m.bank_account.account_name].filter(Boolean).join(" · ") : "-"),
           h("dt", {}, "Webhook URL"), h("dd", {}, m.webhook_url || "-"),
           h("dt", {}, "บังคับ 2FA"), h("dd", {}, m.require_2fa ? "ใช่" : "ไม่"),
+          h("dt", {}, "แพ็กเกจ"), h("dd", {}, m.billing ? `${m.billing.plan.name} (${UI.planText(m.billing.plan)}) · เดือนนี้ ${m.billing.transaction_count} รายการ ≈ ${baht(m.billing.total)}` : "ยังไม่กำหนด (ไม่ออกบิล)",
+            can("billing.manage") ? h("button", { class: "link small", type: "button", onclick: () => choosePlan(m, render) }, " เปลี่ยน") : null),
           h("dt", {}, "เชื่อมบัญชีธนาคาร"), h("dd", {}, (m.bank_connections || []).length
             ? m.bank_connections.map((b) => `${b.label} (${b.livemode ? "จริง" : "ทดสอบ"}, ${b.matching === "reference" ? "Biller ID" : "จับคู่ยอด"}${b.last_event_at ? ", แจ้งล่าสุด " + dt(b.last_event_at) : ""})`).join(" · ")
             : "ยังไม่เชื่อม"),
@@ -340,6 +343,101 @@
         : h("div", { class: "empty" }, status === "failed" ? "ไม่มี webhook ที่ล้มเหลว ✓" : "ไม่มีรายการ"));
     };
     await load();
+  }
+
+  // ---------- plans & invoices ----------
+  const toSatang = (v) => { const n = Math.round(Number(String(v).replace(/,/g, "")) * 100); if (!Number.isFinite(n) || n < 0) throw new Error("กรอกจำนวนเงินเป็นตัวเลข"); return n; };
+  const planFields = (p = {}) => [
+    { name: "name", label: "ชื่อแพ็กเกจ", value: p.name || "", required: true, placeholder: "เช่น Starter" },
+    { name: "monthly_fee", label: "ค่าบริการรายเดือน (บาท)", type: "number", value: p.monthly_fee != null ? p.monthly_fee / 100 : "0", required: true },
+    { name: "included_transactions", label: "จำนวนรายการที่รวมในค่ารายเดือน", type: "number", value: p.included_transactions ?? 0, required: true },
+    { name: "per_transaction_fee", label: "ค่าธรรมเนียมต่อรายการที่เกิน (บาท)", type: "number", value: p.per_transaction_fee != null ? p.per_transaction_fee / 100 : "0", required: true },
+    { name: "percent_fee", label: "ค่าธรรมเนียม % ของยอดรับชำระ (เช่น 0.5)", type: "number", value: p.percent_fee_bps != null ? p.percent_fee_bps / 100 : "0", required: true, hint: "ใส่ 0 ถ้าไม่คิดตามยอด" },
+  ];
+  const planBody = (v) => {
+    const pct = Math.round(Number(v.percent_fee) * 100);
+    const count = Number(v.included_transactions);
+    if (!Number.isInteger(count) || count < 0) throw new Error("จำนวนรายการต้องเป็นจำนวนเต็ม");
+    if (!Number.isFinite(pct) || pct < 0 || pct > 10000) throw new Error("เปอร์เซ็นต์ต้องอยู่ระหว่าง 0–100");
+    return { name: v.name, monthly_fee: toSatang(v.monthly_fee), included_transactions: count, per_transaction_fee: toSatang(v.per_transaction_fee), percent_fee_bps: pct };
+  };
+
+  async function choosePlan(m, after) {
+    const plans = (await api("/plans")).data.filter((p) => p.active || p.id === m.plan_id);
+    UI.formModal("แพ็กเกจของ " + m.name, [
+      { name: "plan_id", label: "แพ็กเกจ", type: "select", value: m.billing ? m.billing.plan.id : "", options: [["", "ไม่ออกบิล"], ...plans.map((p) => [p.id, `${p.name} — ${UI.planText(p)}`])] },
+    ], "บันทึก", async (v, mm) => {
+      await api(`/merchants/${m.id}/plan`, { method: "POST", body: { plan_id: v.plan_id || null } });
+      mm.close(); toast("เปลี่ยนแพ็กเกจแล้ว มีผลกับบิลรอบถัดไป"); await after();
+    });
+  }
+
+  async function viewBilling() {
+    const manage = can("billing.manage");
+    const plansBox = h("div");
+    const invBox = h("div", { class: "grid" });
+    const filters = { status: "", period: "" };
+    main.replaceChildren(h("h1", {}, "แพ็กเกจและบิล"), h("div", { class: "grid" },
+      h("div", { class: "card grid" },
+        h("div", { class: "page-head" }, h("h2", { class: "m0" }, "แพ็กเกจ"),
+          manage ? h("button", { class: "btn primary", type: "button", onclick: () => UI.formModal("สร้างแพ็กเกจ", planFields(), "สร้าง", async (v, mm) => {
+            await api("/plans", { method: "POST", body: planBody(v) }); mm.close(); toast("สร้างแพ็กเกจแล้ว"); await loadPlans();
+          }) }, "+ สร้างแพ็กเกจ") : null),
+        h("p", { class: "m0 small muted" }, "ค่าบริการ = ค่ารายเดือน + ค่าธรรมเนียมรายการที่เกินจำนวนที่รวมไว้ + % ของยอดรับชำระ (นับเฉพาะรายการโหมดจริงที่ชำระสำเร็จ) แล้วบวก VAT การแก้แพ็กเกจไม่กระทบใบแจ้งหนี้ที่ออกไปแล้ว"),
+        plansBox),
+      h("div", { class: "card grid" }, h("div", { class: "page-head" }, h("h2", { class: "m0" }, "ใบแจ้งหนี้")), invBox)));
+
+    const loadPlans = async () => {
+      const res = await api("/plans");
+      plansBox.replaceChildren(res.data.length ? h("div", { class: "table-wrap" }, h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, h("th", {}, "แพ็กเกจ"), h("th", {}, "ราคา"), h("th", { class: "num" }, "ร้านที่ใช้"), h("th", {}, "สถานะ"), h("th", {}, ""))),
+        h("tbody", {}, res.data.map((p) => h("tr", {},
+          h("td", {}, h("span", { class: "ref" }, p.name)),
+          h("td", { class: "small" }, UI.planText(p)),
+          h("td", { class: "num" }, p.merchants),
+          h("td", {}, p.active ? h("span", { class: "status on" }, "เปิดขาย") : h("span", { class: "status off" }, "ปิดขาย")),
+          h("td", {}, manage ? h("div", { class: "row end" },
+            h("button", { class: "btn sm", type: "button", onclick: () => UI.formModal("แก้ไข " + p.name, planFields(p), "บันทึก", async (v, mm) => {
+              await api("/plans/" + p.id, { method: "PATCH", body: planBody(v) }); mm.close(); toast("บันทึกแล้ว"); await loadPlans();
+            }) }, "แก้ไข"),
+            h("button", { class: "btn sm", type: "button", onclick: async () => {
+              await api("/plans/" + p.id, { method: "PATCH", body: { active: !p.active } }); await loadPlans();
+            } }, p.active ? "ปิดขาย" : "เปิดขาย")) : null))))))
+        : h("div", { class: "empty" }, "ยังไม่มีแพ็กเกจ" + (manage ? " — สร้างแพ็กเกจแรกแล้วกำหนดให้ร้านค้าที่หน้าข้อมูลร้าน" : "")));
+    };
+
+    const loadInvoices = async () => {
+      const params = new URLSearchParams(Object.entries(filters).filter(([, v]) => v));
+      const res = await api("/invoices?" + params);
+      const status = h("select", { class: "auto", "aria-label": "สถานะ", onchange: () => { filters.status = status.value; loadInvoices(); } },
+        [["", "ทุกสถานะ"], ...Object.entries(UI.INVOICE_STATUS).map(([k, v]) => [k, v[1]])].map(([v, l]) => h("option", { value: v, selected: v === filters.status ? true : null }, l)));
+      const period = h("input", { type: "month", class: "auto", value: filters.period, "aria-label": "รอบบิล", onchange: () => { filters.period = period.value; loadInvoices(); } });
+      invBox.replaceChildren(
+        h("div", { class: "row" }, status, period,
+          manage ? h("button", { class: "btn", type: "button", onclick: async () => {
+            if (!confirm(`ออกใบแจ้งหนี้รอบ ${UI.periodLabel(res.last_period)} ให้ร้านที่มีแพ็กเกจและยังไม่มีบิลรอบนี้? (ระบบออกให้อัตโนมัติทุกต้นเดือนอยู่แล้ว)`)) return;
+            const r = await api("/invoices/generate", { method: "POST", body: {} });
+            toast(r.issued ? `ออกใบแจ้งหนี้ ${r.issued} ใบ` : "ทุกร้านมีใบแจ้งหนี้รอบนี้แล้ว"); await loadInvoices();
+          } }, "ออกบิลรอบ " + UI.periodLabel(res.last_period)) : null),
+        h("div", { class: "grid tiles" },
+          h("div", { class: "card tile" }, h("div", { class: "label" }, "รอชำระ"), h("div", { class: "value" }, baht(res.totals.issued))),
+          h("div", { class: "card tile" }, h("div", { class: "label" }, "ชำระแล้ว"), h("div", { class: "value" }, baht(res.totals.paid)))),
+        res.data.length ? UI.invoiceTable(res.data, {
+          showMerchant: true,
+          docUrl: (i) => `/admin/console/api/invoices/${i.id}/document`,
+          actions: (i) => manage && i.status === "issued" ? [
+            h("button", { class: "btn sm good", type: "button", onclick: async () => {
+              if (!confirm(`บันทึกว่า ${i.merchant_name} ชำระ ${i.number} (${baht(i.total)}) แล้ว? ใช้เมื่อได้รับเงินนอกระบบ`)) return;
+              await api(`/invoices/${i.id}/status`, { method: "POST", body: { status: "paid" } }); toast("บันทึกแล้ว"); await loadInvoices();
+            } }, "ชำระแล้ว"),
+            h("button", { class: "btn sm bad", type: "button", onclick: async () => {
+              if (!confirm(`ยกเลิกใบแจ้งหนี้ ${i.number}? ใช้เมื่อออกผิด`)) return;
+              await api(`/invoices/${i.id}/status`, { method: "POST", body: { status: "void" } }); toast("ยกเลิกแล้ว"); await loadInvoices();
+            } }, "ยกเลิก"),
+          ] : [],
+        }) : h("div", { class: "empty" }, "ยังไม่มีใบแจ้งหนี้"));
+    };
+    await Promise.all([loadPlans(), loadInvoices()]);
   }
 
   // ---------- admins ----------

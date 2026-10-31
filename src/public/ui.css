@@ -65,13 +65,14 @@ h3 { font-size:14px; margin:0 0 8px; }
 .btn.sm { padding:4px 10px; font-size:13px; }
 .btn:disabled { opacity:.55; cursor:wait; }
 button.link { background:none; border:0; padding:0; color:var(--accent); cursor:pointer; font-weight:500; }
-input[type=text], input[type=search], input[type=password], input[type=number], input[type=email], input[type=tel], input[type=date], select, textarea {
+input[type=text], input[type=search], input[type=password], input[type=number], input[type=email], input[type=tel], input[type=date], input[type=month], select, textarea {
   padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:var(--surface); width:100%; }
 label.f { display:flex; flex-direction:column; gap:6px; font-size:13px; color:var(--muted); }
 label.check { display:flex; gap:8px; align-items:center; font-size:14px; }
 .row { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
 .row.end { justify-content:flex-end; }
 .row > label.f { flex:1; min-width:140px; }
+.row > select.auto, .row > input.auto { width:auto; min-width:160px; }
 .muted { color:var(--muted); }
 .small { font-size:13px; }
 .mono { font-family:ui-monospace, monospace; font-size:13px; }

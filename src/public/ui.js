@@ -74,6 +74,7 @@
     "merchant.privacy_url": "แก้ลิงก์นโยบายความเป็นส่วนตัว", "merchant.signup": "สมัครร้านค้าใหม่", "kyc.update": "แก้ข้อมูลยืนยันตัวตนร้าน",
     "kyc.document_added": "แนบเอกสารยืนยันตัวตน", "kyc.document_removed": "ลบเอกสารยืนยันตัวตน", "kyc.submitted": "ส่งเอกสารให้ตรวจ", "kyc.approved": "อนุมัติร้านค้า",
     "kyc.rejected": "ไม่อนุมัติร้านค้า", "kyc.document_viewed": "เปิดดูเอกสารร้าน", "notice.enable": "เปิดหน้าแจ้งชำระเงิน", "notice.disable": "ปิดหน้าแจ้งชำระเงิน", "payment.bank_confirmed": "ธนาคารยืนยันเงินเข้า", "bank.assign": "จับคู่เงินเข้ากับรายการ", "bank.notification": "ธนาคารแจ้งเงินเข้า (จับคู่ไม่ได้)", "admin_user.reset_password": "รีเซ็ตรหัสผ่านแอดมิน", "admin_user.password_changed": "แอดมินเปลี่ยนรหัสผ่าน",
+    "plan.create": "สร้างแพ็กเกจ", "plan.update": "แก้ไขแพ็กเกจ", "merchant.plan": "เปลี่ยนแพ็กเกจของร้าน", "invoices.generate": "ออกใบแจ้งหนี้รายเดือน", "invoice.mark_paid": "บันทึกว่าชำระค่าบริการแล้ว", "invoice.void": "ยกเลิกใบแจ้งหนี้",
   };
 
   function statusBadge(s) {
@@ -607,10 +608,50 @@
         h("td", { class: "small muted mono" }, r.ip || ""))))));
   }
 
+  // ---------- billing (shared by the admin console and the shop dashboard) ----------
+  const INVOICE_STATUS = { issued: ["pending", "รอชำระ"], paid: ["on", "ชำระแล้ว"], void: ["off", "ยกเลิก"] };
+  const invoiceBadge = (s) => h("span", { class: "status " + (INVOICE_STATUS[s] || ["", s])[0] }, (INVOICE_STATUS[s] || ["", s])[1]);
+  const periodLabel = (p) => new Date(p + "-15T00:00:00Z").toLocaleDateString("th-TH", { month: "long", year: "numeric", timeZone: "Asia/Bangkok" });
+  /** "฿490/เดือน · รวม 300 รายการ · เกินคิด ฿2/รายการ · 0.5% ของยอด" */
+  function planText(p) {
+    const parts = [baht(p.monthly_fee) + "/เดือน"];
+    if (p.included_transactions) parts.push(`รวม ${p.included_transactions.toLocaleString("th-TH")} รายการ`);
+    if (p.per_transaction_fee) parts.push((p.included_transactions ? "เกินคิด " : "") + baht(p.per_transaction_fee) + "/รายการ");
+    if (p.percent_fee_bps) parts.push((p.percent_fee_bps / 100).toLocaleString("th-TH", { maximumFractionDigits: 2 }) + "% ของยอด");
+    return parts.join(" · ");
+  }
+  /** Line items of an invoice or of this month's running estimate. */
+  function chargeLines(c) {
+    const row = (label, v, cls) => h("tr", { class: cls || null }, h("td", {}, label), h("td", { class: "num" }, baht(v)));
+    return h("table", { class: "list" }, h("tbody", {},
+      row("ค่าบริการรายเดือน", c.monthly_fee),
+      c.usage_fee ? row("ค่าธรรมเนียมรายการที่เกินแพ็กเกจ", c.usage_fee) : null,
+      c.percent_fee ? row("ค่าธรรมเนียมตามยอดรับชำระ", c.percent_fee) : null,
+      row("รวมก่อนภาษี", c.subtotal),
+      row("ภาษีมูลค่าเพิ่ม", c.vat),
+      row("รวมทั้งสิ้น", c.total, "strong")));
+  }
+  function invoiceTable(rows, { showMerchant = false, docUrl, actions } = {}) {
+    return h("div", { class: "table-wrap" }, h("table", { class: "list" },
+      h("thead", {}, h("tr", {}, h("th", {}, "เลขที่"), showMerchant ? h("th", {}, "ร้านค้า") : null, h("th", {}, "รอบบิล"), h("th", { class: "num" }, "รายการ"), h("th", { class: "num" }, "ยอดรวม"), h("th", {}, "สถานะ"), h("th", {}, "ครบกำหนด"), h("th", {}, ""))),
+      h("tbody", {}, rows.map((i) => h("tr", {},
+        h("td", { class: "mono small" }, i.number),
+        showMerchant ? h("td", {}, i.merchant_name) : null,
+        h("td", {}, periodLabel(i.period)),
+        h("td", { class: "num" }, i.transaction_count.toLocaleString("th-TH")),
+        h("td", { class: "num" }, baht(i.total)),
+        h("td", {}, invoiceBadge(i.status)),
+        h("td", { class: "small" }, i.status === "issued" ? dt(i.due_at) : i.paid_at ? "ชำระ " + dt(i.paid_at) : "-"),
+        h("td", {}, h("div", { class: "row end" },
+          h("a", { class: "btn sm", href: docUrl(i), target: "_blank", rel: "noopener" }, "ใบแจ้งหนี้"),
+          ...(actions ? actions(i) : []).filter(Boolean))))))));
+  }
+
   window.UI = {
     h, svg, baht, bahtShort, dt, dayLabel, STATUS, METHOD, statusBadge, toast, copyText, copyField, makeApi,
     drawer, modal, showSecret, formModal, loginView, changePasswordView, shell, salesChart, paymentTable, openPayment,
     mfaPrompt, mfaSetupRequiredView, twoFactorCard, showRecoveryCodes,
     exportDialog, usersPanel, auditTable, reasonText,
+    INVOICE_STATUS, invoiceBadge, periodLabel, planText, chargeLines, invoiceTable,
   };
 })();

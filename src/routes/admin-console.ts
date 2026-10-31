@@ -7,6 +7,8 @@ import { now } from "../db.ts";
 import { safeEqual } from "../ids.ts";
 import type { AuditService } from "../services/audit.ts";
 import { type BankService, serializeConnection } from "../services/bank.ts";
+import { type BillingService, bangkokMonth, previousMonth, serializePlan } from "../services/billing.ts";
+import { INVOICE_DOC_CSP, renderInvoiceDocument } from "./invoice-document.ts";
 import { KYC_DOCUMENT_KINDS, type KycDocumentKind, kycMissing, type KycService } from "../services/kyc.ts";
 import { MAX_EXPORT_ROWS, paymentExportTable } from "../services/export.ts";
 import type { MerchantService } from "../services/merchants.ts";
@@ -57,6 +59,7 @@ export interface AdminConsoleDeps {
   requireAdmin2fa: boolean;
   bank: BankService;
   kyc: KycService;
+  billing: BillingService;
 }
 
 /**
@@ -274,6 +277,7 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
           id: d.id, kind: d.kind, kind_label: KYC_DOCUMENT_KINDS[d.kind as KycDocumentKind] ?? d.kind, filename: d.filename, mime: d.mime, size: d.size, created_at: d.created_at,
         })),
         kyc_missing: kycMissing(m, deps.kyc.documents(m.id)),
+        billing: deps.billing.estimate(m),
         summary: payments.summary(m.id, true),
       };
     });
@@ -502,6 +506,77 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
         return { ok: true };
       },
     );
+
+    // ---- plans and invoices ----
+    const satang = z.number().int().min(0).max(1_000_000_000);
+    const planSchema = z.object({
+      name: z.string().trim().min(1).max(80),
+      monthly_fee: satang,
+      included_transactions: z.number().int().min(0).max(10_000_000),
+      per_transaction_fee: satang,
+      percent_fee_bps: z.number().int().min(0).max(10_000),
+    });
+
+    api.get(`${BASE}/plans`, { preHandler: need("merchants.view") }, async () => {
+      const counts = new Map(
+        (db.prepare("SELECT plan_id, COUNT(*) AS n FROM merchants WHERE plan_id IS NOT NULL GROUP BY plan_id").all() as { plan_id: string; n: number }[]).map((r) => [r.plan_id, r.n]),
+      );
+      return { object: "list", data: deps.billing.plans().map((p) => ({ ...serializePlan(p), merchants: counts.get(p.id) ?? 0 })) };
+    });
+
+    api.post(`${BASE}/plans`, { preHandler: need("billing.manage") }, async (req, reply) => {
+      const p = deps.billing.createPlan(planSchema.parse(req.body));
+      log(req, "plan.create", null, p.id, { name: p.name });
+      return reply.code(201).send(serializePlan(p));
+    });
+
+    api.patch<{ Params: { id: string } }>(`${BASE}/plans/:id`, { preHandler: need("billing.manage") }, async (req) => {
+      const p = deps.billing.updatePlan(req.params.id, planSchema.extend({ active: z.boolean() }).partial().parse(req.body));
+      log(req, "plan.update", null, p.id, { name: p.name });
+      return serializePlan(p);
+    });
+
+    api.post<{ Params: { id: string } }>(`${BASE}/merchants/:id/plan`, { preHandler: need("billing.manage") }, async (req) => {
+      const m = requireMerchant(req.params.id);
+      const { plan_id } = z.object({ plan_id: z.string().max(64).nullable() }).parse(req.body);
+      deps.billing.assignPlan(m.id, plan_id);
+      log(req, "merchant.plan", m.id, m.id, { plan_id });
+      return { plan_id };
+    });
+
+    api.get(`${BASE}/invoices`, { preHandler: need("merchants.view") }, async (req) => {
+      const q = z.object({ status: z.enum(["issued", "paid", "void"]).optional(), period: z.string().regex(/^\d{4}-\d{2}$/).optional(), merchant_id: z.string().max(64).optional() }).parse(req.query);
+      const rows = deps.billing.invoices({ status: q.status, period: q.period, merchantId: q.merchant_id }, 200);
+      const sum = (s: string) => rows.filter((r) => r.status === s).reduce((a, r) => a + r.total, 0);
+      return { object: "list", data: rows.map((i) => deps.billing.serializeInvoice(i)), totals: { issued: sum("issued"), paid: sum("paid") }, last_period: previousMonth(bangkokMonth()) };
+    });
+
+    api.post(`${BASE}/invoices/generate`, { preHandler: need("billing.manage") }, async (req) => {
+      const { period } = z.object({ period: z.string().regex(/^\d{4}-\d{2}$/).optional() }).parse(req.body ?? {});
+      const target = period ?? previousMonth(bangkokMonth());
+      const billed = db.prepare("SELECT id FROM merchants WHERE plan_id IS NOT NULL AND kyc_status = 'approved'").all() as { id: string }[];
+      let issued = 0;
+      for (const m of billed) {
+        const before = deps.billing.invoices({ merchantId: m.id, period: target }, 1).length;
+        if (deps.billing.issue(m.id, target) && !before) issued++;
+      }
+      log(req, "invoices.generate", null, target, { issued });
+      return { period: target, issued };
+    });
+
+    api.post<{ Params: { id: string } }>(`${BASE}/invoices/:id/status`, { preHandler: need("billing.manage") }, async (req) => {
+      const { status } = z.object({ status: z.enum(["paid", "void"]) }).parse(req.body);
+      const inv = deps.billing.setStatus(req.params.id, status);
+      log(req, status === "paid" ? "invoice.mark_paid" : "invoice.void", inv.merchant_id, inv.number);
+      return deps.billing.serializeInvoice(inv);
+    });
+
+    api.get<{ Params: { id: string } }>(`${BASE}/invoices/:id/document`, { preHandler: need("merchants.view") }, async (req, reply) => {
+      const inv = deps.billing.invoice(req.params.id);
+      if (!inv) throw new PaymentError(404, "not_found", "ไม่พบใบแจ้งหนี้");
+      return reply.type("text/html; charset=utf-8").header("Content-Security-Policy", INVOICE_DOC_CSP)
+        .send(renderInvoiceDocument(deps.billing.serializeInvoice(inv), requireMerchant(inv.merchant_id), deps.billing.config.issuer));
+    });
 
     api.get(`${BASE}/audit`, { preHandler: need("audit.view") }, async (req) => {
       const q = z.object({ merchant_id: z.string().max(64).optional(), before: z.string().max(40).optional() }).parse(req.query);

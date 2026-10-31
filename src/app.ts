@@ -14,6 +14,7 @@ import { legalRoutes } from "./routes/legal.ts";
 import { noticeRoutes } from "./routes/notice.ts";
 import { signupRoutes } from "./routes/signup.ts";
 import { KycService } from "./services/kyc.ts";
+import { BillingService } from "./services/billing.ts";
 import { BankService } from "./services/bank.ts";
 import { MaintenanceService } from "./services/maintenance.ts";
 import { dashboardRoutes } from "./routes/dashboard.ts";
@@ -49,6 +50,7 @@ export interface Gateway {
   audit: AuditService;
   bank: BankService;
   maintenance: MaintenanceService;
+  billing: BillingService;
   /** Runs one round of background work (expiry sweep + webhook delivery). */
   runJobs(): Promise<void>;
 }
@@ -83,6 +85,12 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const limiter = new LoginLimiter();
   const bank = new BankService(db, payments, audit);
   const kyc = new KycService(db, merchants, users, config.dataDir);
+  const billing = new BillingService(db, merchants, payments, config.billing ?? {
+    vatRateBps: 700,
+    dueDays: 7,
+    billingMerchantId: null,
+    issuer: { name: config.operatorName ?? "ผู้ให้บริการระบบ Bizhub", taxId: null, address: null },
+  });
   const maintenance = new MaintenanceService(db, {
     dataDir: config.dataDir,
     slipDir: payments.slipDir,
@@ -133,6 +141,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     limiter,
     bank,
     kyc,
+    billing,
     publicBaseUrl: config.publicBaseUrl,
   });
   await app.register(signupRoutes, { enabled: config.signupEnabled ?? false, kyc, sessions, audit });
@@ -155,12 +164,15 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     requireAdmin2fa: config.requireAdmin2fa,
     bank,
     kyc,
+    billing,
   });
   await app.register(checkoutRoutes, { merchants, payments, slips, omisePublicKey: config.omise?.publicKey ?? null });
 
   const runJobs = async () => {
     payments.sweepExpired();
     await slips.retryDue();
+    const invoiced = billing.runMonthly();
+    if (invoiced) app.log.info({ count: invoiced }, "monthly invoices issued");
     const m = await maintenance.run();
     if (m.backup) app.log.info({ file: m.backup }, "database backup written");
     if (m.purged) app.log.info({ count: m.purged }, "old slip images deleted under the retention policy");
@@ -169,5 +181,5 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     await webhooks.processDue();
   };
 
-  return { app, db, merchants, payments, webhooks, slips, users, audit, bank, maintenance, runJobs };
+  return { app, db, merchants, payments, webhooks, slips, users, audit, bank, maintenance, billing, runJobs };
 }

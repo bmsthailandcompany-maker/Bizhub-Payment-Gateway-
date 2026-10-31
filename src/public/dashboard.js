@@ -31,6 +31,7 @@
     { id: "create", label: "สร้างลิงก์ชำระเงิน", perm: "payments.create" },
     { id: "team", label: "พนักงาน", perm: "users.manage" },
     { id: "bank", label: "บัญชีธนาคาร", perm: "settings.view" },
+    { id: "billing", label: "ค่าบริการ", perm: "billing.view" },
     { id: "audit", label: "ประวัติการใช้งาน", perm: "audit.view" },
     { id: "settings", label: "ตั้งค่า", perm: null },
   ];
@@ -63,7 +64,7 @@
     if (!t || !visible(t)) tab = TABS.find(visible).id;
     S.tab = tab;
     renderShell();
-    const views = { overview: viewOverview, payments: viewPayments, create: viewCreate, team: viewTeam, bank: viewBank, kyc: viewKyc, audit: viewAudit, settings: viewSettings };
+    const views = { overview: viewOverview, payments: viewPayments, create: viewCreate, team: viewTeam, bank: viewBank, kyc: viewKyc, billing: viewBilling, audit: viewAudit, settings: viewSettings };
     Promise.resolve(views[tab]()).catch((ex) => main.replaceChildren(h("p", { class: "error" }, ex.message)));
   }
 
@@ -427,6 +428,29 @@
       box.replaceChildren(...[UI.auditTable(rows, {}), res.data.length === 50 ? h("div", { class: "row center" }, h("button", { class: "btn", type: "button", onclick: more }, "โหลดเพิ่ม")) : null].filter(Boolean));
     };
     await more();
+  }
+
+  // ---------- the shop's own bill ----------
+  async function viewBilling() {
+    const r = await api("/billing");
+    const c = r.current;
+    const pay = async (i) => {
+      const { url } = await api(`/invoices/${i.id}/pay`, { method: "POST", body: {} });
+      window.open(url, "_blank", "noopener");
+    };
+    main.replaceChildren(h("h1", {}, "ค่าบริการ"), h("div", { class: "grid" },
+      h("div", { class: "card grid" },
+        h("h2", { class: "m0" }, c ? `รอบ ${UI.periodLabel(c.period)} (ถึงวันนี้)` : "แพ็กเกจ"),
+        c ? [
+          h("p", { class: "m0" }, h("strong", {}, c.plan.name), " — ", UI.planText(c.plan)),
+          h("p", { class: "m0 small muted" }, `ชำระสำเร็จ ${c.transaction_count.toLocaleString("th-TH")} รายการ ยอด ${baht(c.volume)} · ยอดนี้เป็นการประมาณ ใบแจ้งหนี้จะออกต้นเดือนถัดไป`),
+          UI.chargeLines(c),
+        ] : h("p", { class: "m0 muted" }, "ร้านของคุณยังไม่มีแพ็กเกจค่าบริการ กรุณาติดต่อผู้ให้บริการ")),
+      h("div", { class: "card grid" }, h("h2", { class: "m0" }, "ใบแจ้งหนี้"),
+        r.invoices.length ? UI.invoiceTable(r.invoices, {
+          docUrl: (i) => `/dashboard/api/invoices/${i.id}/document`,
+          actions: (i) => i.status === "issued" ? [h("button", { class: "btn sm primary", type: "button", onclick: () => pay(i).catch((ex) => toast(ex.message)) }, "ชำระเงิน")] : [],
+        }) : h("div", { class: "empty" }, "ยังไม่มีใบแจ้งหนี้"))));
   }
 
   // ---------- settings ----------
