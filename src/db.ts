@@ -1,0 +1,334 @@
+import fs from "node:fs";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+
+export type Db = DatabaseSync;
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS merchants (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  promptpay_id TEXT,
+  bank_name TEXT,
+  bank_account_no TEXT,
+  bank_account_name TEXT,
+  webhook_url TEXT,
+  webhook_secret TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  key_hash TEXT NOT NULL UNIQUE,
+  key_prefix TEXT NOT NULL,
+  livemode INTEGER NOT NULL,
+  revoked_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  livemode INTEGER NOT NULL,
+  amount INTEGER NOT NULL,
+  currency TEXT NOT NULL,
+  method TEXT NOT NULL,
+  status TEXT NOT NULL,
+  reference TEXT,
+  description TEXT,
+  metadata TEXT NOT NULL DEFAULT '{}',
+  return_url TEXT,
+  promptpay_payload TEXT,
+  provider_ref TEXT,
+  failure_reason TEXT,
+  slip_path TEXT,
+  slip_mime TEXT,
+  expires_at TEXT NOT NULL,
+  paid_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS payments_merchant_idx ON payments(merchant_id, created_at);
+CREATE INDEX IF NOT EXISTS payments_status_idx ON payments(status, expires_at);
+
+-- A bank transaction can pay for at most one payment.
+CREATE TABLE IF NOT EXISTS used_slips (
+  trans_ref TEXT PRIMARY KEY,
+  payment_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS slip_checks (
+  id TEXT PRIMARY KEY,
+  payment_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  reason TEXT,
+  trans_ref TEXT,
+  amount INTEGER,
+  raw TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS slip_checks_payment_idx ON slip_checks(payment_id, created_at);
+
+-- Staff of a merchant who sign in to the merchant dashboard.
+CREATE TABLE IF NOT EXISTS merchant_users (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 1,
+  active INTEGER NOT NULL DEFAULT 1,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS merchant_users_merchant_idx ON merchant_users(merchant_id);
+
+-- Gateway operators who sign in to the admin console.
+CREATE TABLE IF NOT EXISTS admin_users (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  name TEXT NOT NULL,
+  role TEXT NOT NULL,
+  password_hash TEXT NOT NULL,
+  must_change_password INTEGER NOT NULL DEFAULT 1,
+  active INTEGER NOT NULL DEFAULT 1,
+  last_login_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+-- Browser sessions for both dashboards. Exactly one principal column is set:
+-- user_id (staff / admin user), api_key_id (merchant owner via secret key) or neither for ADMIN_TOKEN.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,
+  merchant_id TEXT,
+  user_id TEXT,
+  api_key_id TEXT,
+  livemode INTEGER NOT NULL DEFAULT 0,
+  expires_at TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT,
+  actor_kind TEXT NOT NULL,
+  actor_id TEXT,
+  actor_name TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target TEXT,
+  details TEXT,
+  ip TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS audit_merchant_idx ON audit_log(merchant_id, created_at);
+CREATE INDEX IF NOT EXISTS audit_created_idx ON audit_log(created_at);
+
+-- A merchant's bank account linked for incoming-payment notifications (one per mode).
+CREATE TABLE IF NOT EXISTS bank_connections (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  livemode INTEGER NOT NULL,
+  label TEXT NOT NULL,
+  biller_id TEXT,
+  secret TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  last_event_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS bank_connections_active_idx ON bank_connections(merchant_id, livemode) WHERE active = 1;
+
+-- Every incoming-money notification, matched or not, so nothing the bank reports is lost.
+CREATE TABLE IF NOT EXISTS bank_events (
+  id TEXT PRIMARY KEY,
+  connection_id TEXT NOT NULL REFERENCES bank_connections(id),
+  merchant_id TEXT NOT NULL,
+  livemode INTEGER NOT NULL,
+  trans_ref TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  ref1 TEXT,
+  ref2 TEXT,
+  payer_name TEXT,
+  paid_at TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  reason TEXT,
+  payment_id TEXT,
+  created_at TEXT NOT NULL,
+  UNIQUE (connection_id, trans_ref)
+);
+CREATE INDEX IF NOT EXISTS bank_events_merchant_idx ON bank_events(merchant_id, created_at);
+
+-- Documents a self-signed-up shop submits for review (ID card, company certificate, bank book page).
+CREATE TABLE IF NOT EXISTS kyc_documents (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  kind TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  path TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS kyc_documents_merchant_idx ON kyc_documents(merchant_id);
+
+-- Hybrid pricing: a monthly fee, a number of included transactions, then a fixed fee per extra
+-- transaction plus an optional percentage of the volume collected. Amounts in satang, exclusive of VAT.
+CREATE TABLE IF NOT EXISTS plans (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  monthly_fee INTEGER NOT NULL,
+  included_transactions INTEGER NOT NULL,
+  per_transaction_fee INTEGER NOT NULL,
+  percent_fee_bps INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+
+-- One invoice per shop per month. Figures are frozen at issue time so later plan edits never change them.
+CREATE TABLE IF NOT EXISTS invoices (
+  id TEXT PRIMARY KEY,
+  number TEXT NOT NULL UNIQUE,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  period TEXT NOT NULL,
+  plan_snapshot TEXT NOT NULL,
+  transaction_count INTEGER NOT NULL,
+  volume INTEGER NOT NULL,
+  monthly_fee INTEGER NOT NULL,
+  usage_fee INTEGER NOT NULL,
+  percent_fee INTEGER NOT NULL,
+  subtotal INTEGER NOT NULL,
+  vat_rate_bps INTEGER NOT NULL,
+  vat INTEGER NOT NULL,
+  total INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  payment_id TEXT,
+  issued_at TEXT NOT NULL,
+  due_at TEXT NOT NULL,
+  paid_at TEXT,
+  UNIQUE (merchant_id, period)
+);
+CREATE INDEX IF NOT EXISTS invoices_status_idx ON invoices(status, due_at);
+
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+  merchant_id TEXT NOT NULL,
+  key TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  payment_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (merchant_id, key)
+);
+
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL,
+  type TEXT NOT NULL,
+  payment_id TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS webhook_deliveries (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id),
+  merchant_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  status TEXT NOT NULL,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  last_status_code INTEGER,
+  last_error TEXT,
+  next_attempt_at TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS webhook_due_idx ON webhook_deliveries(status, next_attempt_at);
+`;
+
+export function openDb(dataDir: string | ":memory:"): Db {
+  let file = ":memory:";
+  if (dataDir !== ":memory:") {
+    fs.mkdirSync(dataDir, { recursive: true });
+    file = path.join(dataDir, "gateway.db");
+  }
+  const db = new DatabaseSync(file);
+  db.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
+  db.exec(SCHEMA);
+  migrate(db);
+  return db;
+}
+
+/** Columns added after the first release; added in place to databases created before them. */
+const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
+  ["payments", "slip_attempts", "INTEGER NOT NULL DEFAULT 0"],
+  ["payments", "verify_status", "TEXT"],
+  ["payments", "verify_reason", "TEXT"],
+  ["payments", "verify_started_at", "TEXT"],
+  ["payments", "verify_retry_at", "TEXT"],
+  ["payments", "verify_retries", "INTEGER NOT NULL DEFAULT 0"],
+  ["payments", "slip_trans_ref", "TEXT"],
+  // Two-factor authentication. totp_secret is set while enrolling; totp_enabled flips once a code is confirmed.
+  ["merchant_users", "totp_secret", "TEXT"],
+  ["merchant_users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0"],
+  ["merchant_users", "totp_last_step", "INTEGER"],
+  ["merchant_users", "recovery_codes", "TEXT"],
+  ["admin_users", "totp_secret", "TEXT"],
+  ["admin_users", "totp_enabled", "INTEGER NOT NULL DEFAULT 0"],
+  ["admin_users", "totp_last_step", "INTEGER"],
+  ["admin_users", "recovery_codes", "TEXT"],
+  ["merchants", "require_2fa", "INTEGER NOT NULL DEFAULT 0"],
+  // Short code embedded in bill-payment QRs (Reference 1) and quoted by bank notifications.
+  ["payments", "ref_code", "TEXT"],
+  // How the money was confirmed: card | slip | bank | manual.
+  ["payments", "confirmed_by", "TEXT"],
+  // Public "I have paid" page where customers who transferred by account number upload their slip.
+  ["merchants", "notice_enabled", "INTEGER NOT NULL DEFAULT 0"],
+  // Set when a slip image was deleted under the retention policy.
+  ["payments", "slip_purged_at", "TEXT"],
+  // The shop's own privacy policy (the shop is the data controller for its customers' slips).
+  ["merchants", "privacy_url", "TEXT"],
+  // When the slip image was copied to off-site backup storage.
+  ["payments", "slip_offsite_at", "TEXT"],
+  // Know-your-customer review for shops that sign up themselves. Shops created by an admin are approved.
+  // draft -> submitted -> approved | rejected (rejected shops fix and submit again).
+  ["merchants", "kyc_status", "TEXT NOT NULL DEFAULT 'approved'"],
+  ["merchants", "business_type", "TEXT"],
+  ["merchants", "tax_id", "TEXT"],
+  ["merchants", "contact_name", "TEXT"],
+  ["merchants", "contact_phone", "TEXT"],
+  ["merchants", "kyc_note", "TEXT"],
+  ["merchants", "kyc_submitted_at", "TEXT"],
+  ["merchants", "kyc_reviewed_at", "TEXT"],
+  ["merchants", "kyc_reviewed_by", "TEXT"],
+  // Service plan the shop is billed on (null = not billed).
+  ["merchants", "plan_id", "TEXT"],
+];
+
+function migrate(db: Db): void {
+  for (const [table, column, definition] of ADDED_COLUMNS) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    if (!cols.some((c) => c.name === column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS payments_verify_retry_idx ON payments(status, verify_retry_at)");
+  db.exec("CREATE INDEX IF NOT EXISTS payments_ref_code_idx ON payments(merchant_id, ref_code)");
+}
+
+export function now(): string {
+  return new Date().toISOString();
+}
+
+export function tx<T>(db: Db, fn: () => T): T {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    db.exec("COMMIT");
+    return result;
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
