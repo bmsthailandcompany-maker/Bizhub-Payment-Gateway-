@@ -205,6 +205,14 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       webhook_secret: req.permissions!.includes("webhooks.secret") ? req.merchant!.webhook_secret : null,
     }));
 
+    api.patch("/dashboard/api/profile", async (req) => {
+      if (req.actor!.kind !== "merchant_user") throw new PaymentError(400, "not_a_user", "บัญชีนี้ไม่สามารถแก้ไขโปรไฟล์ได้");
+      const input = z.object({ name: z.string().trim().min(1).max(120) }).strict().parse(req.body);
+      const updated = users.update("merchant", req.actor!.id!, { name: input.name });
+      log(req, "user.update", updated.id, { field: "name", self: true });
+      return { name: updated.name };
+    });
+
     api.post("/dashboard/api/password", async (req) => {
       if (req.actor!.kind !== "merchant_user") throw new PaymentError(400, "not_a_user", "เข้าด้วย Secret key ไม่มีรหัสผ่านให้เปลี่ยน");
       const { current_password, new_password } = passwordSchema.parse(req.body);
