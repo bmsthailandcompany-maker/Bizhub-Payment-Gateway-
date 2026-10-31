@@ -5,6 +5,7 @@ import { MERCHANT_ROLES, type MerchantPermission, type MerchantRole } from "../a
 import type { Db } from "../db.ts";
 import type { AuditService } from "../services/audit.ts";
 import { type BankService, serializeConnection } from "../services/bank.ts";
+import { KYC_DOCUMENT_KINDS, type KycDocumentKind, kycMissing, type KycService } from "../services/kyc.ts";
 import { MAX_EXPORT_ROWS, paymentExportTable } from "../services/export.ts";
 import type { MerchantService } from "../services/merchants.ts";
 import { serializeMerchant } from "../services/merchants.ts";
@@ -15,6 +16,7 @@ import type { SlipService } from "../services/slips.ts";
 import { serializeUser, type UserService } from "../services/users.ts";
 import { mfaSetupPaths, registerMfaLogin, registerMfaSelfService } from "./mfa.ts";
 import { isValidBillerId } from "../promptpay.ts";
+import { looksLike } from "./checkout.ts";
 import { createPaymentSchema, listPaymentsQuery, rejectSchema } from "./schemas.ts";
 import {
   appShell,
@@ -28,8 +30,8 @@ import {
   setSessionCookie,
 } from "./web-session.ts";
 
-const COOKIE = "bizhub_session";
-const COOKIE_PATH = "/dashboard";
+export const COOKIE = "bizhub_session";
+export const COOKIE_PATH = "/dashboard";
 
 const loginSchema = z.union([
   z.object({ email: z.string().email().max(200), password: z.string().min(1).max(200) }),
@@ -50,6 +52,7 @@ export interface DashboardDeps {
   audit: AuditService;
   limiter: LoginLimiter;
   bank: BankService;
+  kyc: KycService;
   publicBaseUrl: string;
 }
 
@@ -59,7 +62,7 @@ export interface DashboardDeps {
  * secret key also works and acts as the owner.
  */
 export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps) {
-  const { db, merchants, payments, slips, users, sessions, audit, limiter, bank } = deps;
+  const { db, merchants, payments, slips, users, sessions, audit, limiter, bank, kyc } = deps;
 
   app.get("/dashboard", async (_req, reply) => pageHeaders(reply).send(appShell("Bizhub Dashboard", "dashboard.js")));
 
@@ -97,6 +100,9 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       }
     } else {
       const auth = merchants.authenticate(body.secret_key.trim());
+      if (auth && auth.livemode && auth.merchant.kyc_status !== "approved") {
+        throw new PaymentError(403, "account_not_approved", "ร้านยังไม่ผ่านการตรวจเอกสาร ใช้ Secret key โหมดทดสอบ (sk_test_) ไปก่อน");
+      }
       if (auth) {
         token = sessions.create({ kind: "merchant", merchantId: auth.merchant.id, apiKeyId: auth.keyId, livemode: auth.livemode });
         merchantId = auth.merchant.id;
@@ -208,6 +214,9 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
     // Staff switch between live and test data inside one session; a secret key is bound to its own mode.
     api.post("/dashboard/api/mode", async (req) => {
       const { livemode } = z.object({ livemode: z.boolean() }).parse(req.body);
+      if (livemode && req.merchant!.kyc_status !== "approved") {
+        throw new PaymentError(403, "account_not_approved", "โหมดใช้งานจริงจะเปิดหลังร้านผ่านการตรวจเอกสาร");
+      }
       if (req.actor!.kind === "api_key" && livemode !== req.livemode) {
         throw new PaymentError(400, "key_mode_fixed", "เข้าด้วย Secret key สลับโหมดไม่ได้ กรุณาใช้ key ของโหมดนั้น");
       }
@@ -416,6 +425,68 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       if (req.livemode) throw new PaymentError(400, "test_mode_only", "จำลองเงินเข้าได้เฉพาะโหมดทดสอบ");
       const { payment_id, amount } = z.object({ payment_id: z.string().max(64), amount: z.number().int().positive().optional() }).parse(req.body);
       return bank.simulate(activeOr404(req), own(req, payment_id), amount);
+    });
+
+    // ---- shop verification (self sign-up shops open live mode after review) ----
+    const kycProfileSchema = z
+      .object({
+        name: z.string().min(1).max(120),
+        business_type: z.enum(["individual", "company"]),
+        tax_id: z.string().max(20),
+        contact_name: z.string().min(1).max(120),
+        contact_phone: z.string().min(9).max(20),
+        promptpay_id: z.string().max(20).nullable(),
+        bank_name: z.string().max(100).nullable(),
+        bank_account_no: z.string().regex(/^[0-9-]{6,20}$/, "เลขบัญชีไม่ถูกต้อง").or(z.literal("")).nullable(),
+        bank_account_name: z.string().max(120).nullable(),
+      })
+      .partial();
+    const docView = (d: { id: string; kind: string; filename: string; mime: string; size: number; created_at: string }) => ({
+      id: d.id, kind: d.kind, kind_label: KYC_DOCUMENT_KINDS[d.kind as KycDocumentKind] ?? d.kind, filename: d.filename, mime: d.mime, size: d.size, created_at: d.created_at,
+    });
+
+    api.get("/dashboard/api/kyc", async (req) => {
+      const docs = kyc.documents(req.merchant!.id);
+      return { merchant: serializeMerchant(req.merchant!), documents: docs.map(docView), missing: kycMissing(req.merchant!, docs), kinds: KYC_DOCUMENT_KINDS };
+    });
+
+    api.patch("/dashboard/api/kyc", { preHandler: need("users.manage") }, async (req) => {
+      const m = kyc.updateProfile(req.merchant!, kycProfileSchema.parse(req.body));
+      log(req, "kyc.update", m.id);
+      return serializeMerchant(m);
+    });
+
+    api.post("/dashboard/api/kyc/documents", { preHandler: need("users.manage") }, async (req, reply) => {
+      let kind = "";
+      let file: { name: string; mime: string; data: Buffer; truncated: boolean } | null = null;
+      for await (const part of req.parts({ limits: { fileSize: 5 * 1024 * 1024, files: 1, fields: 3 } })) {
+        if (part.type === "file") file = { name: part.filename, mime: part.mimetype, data: await part.toBuffer(), truncated: part.file.truncated };
+        else if (part.fieldname === "kind") kind = String(part.value);
+      }
+      if (!(kind in KYC_DOCUMENT_KINDS)) throw new PaymentError(400, "invalid_kind", "กรุณาเลือกประเภทเอกสาร");
+      if (!file) throw new PaymentError(400, "invalid_file", "กรุณาแนบไฟล์");
+      if (file.truncated) throw new PaymentError(413, "file_too_large", "ไฟล์ต้องไม่เกิน 5 MB");
+      if (!looksLike(file.mime, file.data)) throw new PaymentError(400, "invalid_file", "ไฟล์ต้องเป็นรูปภาพ (JPG, PNG, WebP) หรือ PDF");
+      const doc = kyc.addDocument(req.merchant!, kind as KycDocumentKind, file.name, file.mime, file.data);
+      log(req, "kyc.document_added", doc.id, { kind });
+      return reply.code(201).send(docView(doc));
+    });
+
+    api.get<{ Params: { id: string } }>("/dashboard/api/kyc/documents/:id", { preHandler: need("users.manage") }, async (req, reply) => {
+      const { row, data } = kyc.document(req.merchant!.id, req.params.id);
+      return reply.type(row.mime).header("Cache-Control", "private, no-store").send(data);
+    });
+
+    api.post<{ Params: { id: string } }>("/dashboard/api/kyc/documents/:id/delete", { preHandler: need("users.manage") }, async (req) => {
+      kyc.removeDocument(req.merchant!, req.params.id);
+      log(req, "kyc.document_removed", req.params.id);
+      return { ok: true };
+    });
+
+    api.post("/dashboard/api/kyc/submit", { preHandler: need("users.manage") }, async (req) => {
+      const m = kyc.submit(req.merchant!);
+      log(req, "kyc.submitted", m.id);
+      return serializeMerchant(m);
     });
 
     api.get("/dashboard/api/audit", { preHandler: need("audit.view") }, async (req) => {

@@ -113,7 +113,8 @@ export class SessionService {
     } else {
       return undefined;
     }
-    return { merchant, livemode: s.livemode === 1, actor };
+    // A shop that has not passed review can only see test data, whatever the session asked for.
+    return { merchant, livemode: s.livemode === 1 && merchant.kyc_status === "approved", actor };
   }
 
   resolveAdmin(token: string): { actor: Actor } | undefined {

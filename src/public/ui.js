@@ -71,7 +71,9 @@
     "admin_user.2fa_disabled": "แอดมินปิด 2FA", "admin_user.2fa_recovery_regenerated": "แอดมินสร้างรหัสกู้คืนใหม่", "admin_user.2fa_reset": "ล้าง 2FA ของแอดมิน",
     "merchant_user.2fa_reset": "ล้าง 2FA ของบัญชีร้านค้า", "merchant.security_policy": "เปลี่ยนนโยบายความปลอดภัย",
     "bank.connect": "เชื่อมบัญชีธนาคาร", "bank.disconnect": "ยกเลิกการเชื่อมบัญชีธนาคาร", "bank.rotate_secret": "เปลี่ยนรหัสลับบัญชีธนาคาร",
-    "merchant.privacy_url": "แก้ลิงก์นโยบายความเป็นส่วนตัว", "notice.enable": "เปิดหน้าแจ้งชำระเงิน", "notice.disable": "ปิดหน้าแจ้งชำระเงิน", "payment.bank_confirmed": "ธนาคารยืนยันเงินเข้า", "bank.assign": "จับคู่เงินเข้ากับรายการ", "bank.notification": "ธนาคารแจ้งเงินเข้า (จับคู่ไม่ได้)", "admin_user.reset_password": "รีเซ็ตรหัสผ่านแอดมิน", "admin_user.password_changed": "แอดมินเปลี่ยนรหัสผ่าน",
+    "merchant.privacy_url": "แก้ลิงก์นโยบายความเป็นส่วนตัว", "merchant.signup": "สมัครร้านค้าใหม่", "kyc.update": "แก้ข้อมูลยืนยันตัวตนร้าน",
+    "kyc.document_added": "แนบเอกสารยืนยันตัวตน", "kyc.document_removed": "ลบเอกสารยืนยันตัวตน", "kyc.submitted": "ส่งเอกสารให้ตรวจ", "kyc.approved": "อนุมัติร้านค้า",
+    "kyc.rejected": "ไม่อนุมัติร้านค้า", "kyc.document_viewed": "เปิดดูเอกสารร้าน", "notice.enable": "เปิดหน้าแจ้งชำระเงิน", "notice.disable": "ปิดหน้าแจ้งชำระเงิน", "payment.bank_confirmed": "ธนาคารยืนยันเงินเข้า", "bank.assign": "จับคู่เงินเข้ากับรายการ", "bank.notification": "ธนาคารแจ้งเงินเข้า (จับคู่ไม่ได้)", "admin_user.reset_password": "รีเซ็ตรหัสผ่านแอดมิน", "admin_user.password_changed": "แอดมินเปลี่ยนรหัสผ่าน",
   };
 
   function statusBadge(s) {

@@ -12,6 +12,8 @@ export interface Config {
     | { provider: "easyslip"; apiKey: string; baseUrl?: string }
     | { provider: "slipok"; branchId: string; apiKey: string }
     | null;
+  /** Lets shops sign up by themselves at /signup (they stay in test mode until approved). */
+  signupEnabled?: boolean;
   /** Who runs this gateway, shown on the public privacy page. */
   operatorName?: string;
   operatorContact?: string | null;
@@ -47,6 +49,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     workerIntervalMs: Number(env.WORKER_INTERVAL_MS ?? 5000),
     requireAdmin2fa: env.ADMIN_REQUIRE_2FA === "true",
     slipRetentionDays: Number(env.SLIP_RETENTION_DAYS ?? 0),
+    signupEnabled: env.SIGNUP_ENABLED === "true",
     operatorName: env.OPERATOR_NAME || "ผู้ให้บริการระบบ Bizhub",
     operatorContact: env.OPERATOR_CONTACT || null,
     backupIntervalHours: Number(env.BACKUP_INTERVAL_HOURS ?? 24),

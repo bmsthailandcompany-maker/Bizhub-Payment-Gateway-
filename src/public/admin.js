@@ -27,6 +27,7 @@
   const TABS = [
     { id: "overview", label: "ภาพรวม", perm: "payments.view" },
     { id: "merchants", label: "ร้านค้า", perm: "merchants.view" },
+    { id: "kyc", label: "คำขอเปิดร้าน", perm: "merchants.view" },
     { id: "payments", label: "รายการชำระเงิน", perm: "payments.view" },
     { id: "webhooks", label: "Webhook", perm: "merchants.view" },
     { id: "admins", label: "บัญชีแอดมิน", perm: "admins.manage" },
@@ -54,7 +55,7 @@
     if (!t || (t.perm && !can(t.perm))) tab = TABS.find((x) => !x.perm || can(x.perm)).id;
     S.tab = tab;
     renderShell(S.badges);
-    const views = { overview: viewOverview, merchants: viewMerchants, payments: viewPayments, webhooks: viewWebhooks, admins: viewAdmins, audit: viewAudit, account: viewAccount };
+    const views = { overview: viewOverview, merchants: viewMerchants, kyc: viewKycQueue, payments: viewPayments, webhooks: viewWebhooks, admins: viewAdmins, audit: viewAudit, account: viewAccount };
     Promise.resolve(views[tab]()).catch((ex) => main.replaceChildren(h("p", { class: "error" }, ex.message)));
   }
 
@@ -67,7 +68,7 @@
   async function viewOverview() {
     main.replaceChildren(h("h1", {}, "ภาพรวมทั้งระบบ"), h("p", { class: "muted" }, "กำลังโหลด…"));
     const s = await api("/summary?livemode=" + S.live);
-    S.badges = { payments: s.awaiting_review || null, webhooks: s.failed_webhooks || null };
+    S.badges = { payments: s.awaiting_review || null, webhooks: s.failed_webhooks || null, kyc: s.pending_kyc || null };
     renderShell(S.badges);
     const tile = (label, value, sub, cls, action) => h("div", { class: "card tile " + (cls || "") }, h("div", { class: "label" }, label), h("div", { class: "value" }, value), sub ? h("div", { class: "sub" }, sub) : null, action || null);
     const maxTop = Math.max(1, ...s.top_merchants.map((m) => m.amount));
@@ -201,6 +202,72 @@
           can("audit.view") ? h("button", { class: "btn sm", type: "button", onclick: () => { d.close(); S.auditMerchant = id; go("audit"); } }, "ดูประวัติของร้านนี้") : null),
         usersBox);
       await UI.usersPanel(usersBox, { api, base: `/merchants/${id}/users`, roles: S.me.merchant_roles, title: "บัญชีเข้า Dashboard ของร้าน", canManage: can("merchant_users.manage"), rows: m.users });
+    };
+    d.body.append(h("p", { class: "muted" }, "กำลังโหลด…"));
+    render().catch((ex) => d.body.replaceChildren(h("p", { class: "error" }, ex.message)));
+  }
+
+  // ---------- shop verification queue ----------
+  const KYC_LABEL = { draft: ["", "ยังไม่ส่ง"], submitted: ["pending", "รอตรวจ"], approved: ["on", "อนุมัติแล้ว"], rejected: ["off", "ไม่ผ่าน"] };
+  async function viewKycQueue() {
+    let filter = "submitted";
+    const box = h("div");
+    const chips = h("div", { class: "chips" }, [["submitted", "รอตรวจ"], ["rejected", "ไม่ผ่าน"], ["draft", "ยังไม่ส่ง"], ["approved", "อนุมัติแล้ว"]].map(([v, l]) =>
+      h("button", { class: "chip", type: "button", "aria-pressed": String(v === filter), onclick: (e) => {
+        filter = v; chips.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c === e.currentTarget))); load();
+      } }, l)));
+    main.replaceChildren(h("h1", {}, "คำขอเปิดร้าน"), h("div", { class: "card grid" },
+      h("p", { class: "m0 small muted" }, "ร้านที่สมัครเองใช้ได้เฉพาะโหมดทดสอบจนกว่าจะอนุมัติ ตรวจว่าเอกสารตรงกับชื่อร้าน เลขผู้เสียภาษี และบัญชีรับเงิน"), chips, box));
+    const load = async () => {
+      const res = await api("/merchants?kyc=" + filter);
+      box.replaceChildren(res.data.length ? h("div", { class: "table-wrap" }, h("table", { class: "list" },
+        h("thead", {}, h("tr", {}, h("th", {}, "ร้านค้า"), h("th", {}, "สถานะ"), h("th", {}, "ส่งเมื่อ"))),
+        h("tbody", {}, res.data.map((m) => h("tr", { class: "click", tabindex: "0", onclick: () => openKyc(m.id, load) },
+          h("td", {}, h("span", { class: "ref" }, m.name), h("span", { class: "small muted" }, (m.kyc.contact_name || "") + " · " + (m.kyc.contact_phone || ""))),
+          h("td", {}, h("span", { class: "status " + KYC_LABEL[m.kyc.status][0] }, KYC_LABEL[m.kyc.status][1])),
+          h("td", { class: "small" }, m.kyc.submitted_at ? dt(m.kyc.submitted_at) : "-"))))))
+        : h("div", { class: "empty" }, filter === "submitted" ? "ไม่มีคำขอรอตรวจ ✓" : "ไม่มีรายการ"));
+    };
+    await load();
+  }
+
+  function openKyc(id, onDone) {
+    const d = UI.drawer("ตรวจเอกสารร้าน");
+    const urls = [];
+    const render = async () => {
+      const m = await api("/merchants/" + id);
+      const k = m.kyc;
+      const docBoxes = m.kyc_documents.map((doc) => {
+        const slot = h("div", { class: "grid" }, h("h3", { class: "m0" }, doc.kind_label), h("p", { class: "muted small m0" }, "กำลังโหลด…"));
+        api.blobUrl(`/merchants/${id}/kyc-documents/${doc.id}`).then(({ url, type }) => {
+          urls.push(url);
+          slot.replaceChildren(h("h3", { class: "m0" }, doc.kind_label), type === "application/pdf"
+            ? h("a", { href: url, target: "_blank", rel: "noopener" }, "เปิด " + doc.filename + " (PDF)")
+            : h("a", { href: url, target: "_blank", rel: "noopener" }, h("img", { class: "slip-img", src: url, alt: doc.kind_label })));
+        }).catch(() => slot.replaceChildren(h("p", { class: "error" }, "โหลดเอกสารไม่ได้")));
+        return slot;
+      });
+      d.body.replaceChildren(...[
+        h("div", {}, h("div", { class: "amount-lg" }, m.name), h("div", { class: "row mt8" }, h("span", { class: "status " + KYC_LABEL[k.status][0] }, KYC_LABEL[k.status][1]))),
+        h("dl", { class: "kv" },
+          h("dt", {}, "ประเภท"), h("dd", {}, { individual: "บุคคลธรรมดา", company: "นิติบุคคล" }[k.business_type] || "-"),
+          h("dt", {}, "เลขผู้เสียภาษี"), h("dd", { class: "mono" }, k.tax_id || "-"),
+          h("dt", {}, "ผู้ติดต่อ"), h("dd", {}, (k.contact_name || "-") + " · " + (k.contact_phone || "-")),
+          h("dt", {}, "บัญชีอีเมล"), h("dd", {}, (m.users || []).map((u) => u.email).join(", ") || "-"),
+          h("dt", {}, "พร้อมเพย์"), h("dd", { class: "mono" }, m.promptpay_id || "-"),
+          h("dt", {}, "บัญชีธนาคาร"), h("dd", {}, m.bank_account ? [m.bank_account.bank_name, m.bank_account.account_no, m.bank_account.account_name].filter(Boolean).join(" · ") : "-"),
+          k.note ? [h("dt", {}, "หมายเหตุล่าสุด"), h("dd", {}, k.note)] : null),
+        m.kyc_missing.length ? h("div", { class: "notice small" }, "ยังขาด: " + m.kyc_missing.join(", ")) : null,
+        ...docBoxes,
+        k.status === "submitted" && can("merchants.manage") ? h("div", { class: "actions" },
+          h("button", { class: "btn good", type: "button", onclick: async () => {
+            if (!confirm(`อนุมัติ ${m.name}? ร้านจะเปิดรับเงินจริงได้ทันที`)) return;
+            await api(`/merchants/${id}/kyc-review`, { method: "POST", body: { decision: "approve" } }); toast("อนุมัติแล้ว"); await render(); onDone && onDone();
+          } }, "อนุมัติ"),
+          h("button", { class: "btn bad", type: "button", onclick: () => UI.formModal("ไม่อนุมัติ " + m.name, [
+            { name: "note", label: "เหตุผล (ร้านจะเห็นข้อความนี้)", required: true, value: "", placeholder: "เช่น ภาพสมุดบัญชีไม่ชัด ชื่อบัญชีไม่ตรงกับชื่อร้าน" },
+          ], "ส่งผล", async (v, mm) => { await api(`/merchants/${id}/kyc-review`, { method: "POST", body: { decision: "reject", note: v.note } }); mm.close(); toast("แจ้งผลแล้ว"); await render(); onDone && onDone(); }) }, "ไม่อนุมัติ")) : null,
+      ].filter(Boolean));
     };
     d.body.append(h("p", { class: "muted" }, "กำลังโหลด…"));
     render().catch((ex) => d.body.replaceChildren(h("p", { class: "error" }, ex.message)));

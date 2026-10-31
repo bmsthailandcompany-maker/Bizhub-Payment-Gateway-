@@ -12,6 +12,8 @@ import { assetRoutes } from "./routes/assets.ts";
 import { bankNotifyRoutes } from "./routes/bank.ts";
 import { legalRoutes } from "./routes/legal.ts";
 import { noticeRoutes } from "./routes/notice.ts";
+import { signupRoutes } from "./routes/signup.ts";
+import { KycService } from "./services/kyc.ts";
 import { BankService } from "./services/bank.ts";
 import { MaintenanceService } from "./services/maintenance.ts";
 import { dashboardRoutes } from "./routes/dashboard.ts";
@@ -80,6 +82,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const audit = new AuditService(db);
   const limiter = new LoginLimiter();
   const bank = new BankService(db, payments, audit);
+  const kyc = new KycService(db, merchants, users, config.dataDir);
   const maintenance = new MaintenanceService(db, {
     dataDir: config.dataDir,
     slipDir: payments.slipDir,
@@ -129,8 +132,10 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     audit,
     limiter,
     bank,
+    kyc,
     publicBaseUrl: config.publicBaseUrl,
   });
+  await app.register(signupRoutes, { enabled: config.signupEnabled ?? false, kyc, sessions, audit });
   await app.register(bankNotifyRoutes, { bank });
   await app.register(legalRoutes, {
     operatorName: config.operatorName ?? "ผู้ให้บริการระบบ Bizhub",
@@ -149,6 +154,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     limiter,
     requireAdmin2fa: config.requireAdmin2fa,
     bank,
+    kyc,
   });
   await app.register(checkoutRoutes, { merchants, payments, slips, omisePublicKey: config.omise?.publicKey ?? null });
 

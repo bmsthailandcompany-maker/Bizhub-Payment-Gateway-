@@ -29,6 +29,9 @@ export function merchantAuth(merchants: MerchantService) {
     const key = bearer(req);
     const auth = key ? merchants.authenticate(key) : undefined;
     if (!auth) return unauthorized(reply);
+    if (auth.livemode && auth.merchant.kyc_status !== "approved") {
+      return reply.code(403).send({ error: { code: "account_not_approved", message: "Live mode opens after the shop's documents are approved. Use your test key meanwhile." } });
+    }
     req.merchant = auth.merchant;
     req.livemode = auth.livemode;
   };

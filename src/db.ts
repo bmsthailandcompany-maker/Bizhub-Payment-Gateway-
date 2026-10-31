@@ -164,6 +164,19 @@ CREATE TABLE IF NOT EXISTS bank_events (
 );
 CREATE INDEX IF NOT EXISTS bank_events_merchant_idx ON bank_events(merchant_id, created_at);
 
+-- Documents a self-signed-up shop submits for review (ID card, company certificate, bank book page).
+CREATE TABLE IF NOT EXISTS kyc_documents (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  kind TEXT NOT NULL,
+  filename TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  path TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS kyc_documents_merchant_idx ON kyc_documents(merchant_id);
+
 CREATE TABLE IF NOT EXISTS idempotency_keys (
   merchant_id TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -242,6 +255,17 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["merchants", "privacy_url", "TEXT"],
   // When the slip image was copied to off-site backup storage.
   ["payments", "slip_offsite_at", "TEXT"],
+  // Know-your-customer review for shops that sign up themselves. Shops created by an admin are approved.
+  // draft -> submitted -> approved | rejected (rejected shops fix and submit again).
+  ["merchants", "kyc_status", "TEXT NOT NULL DEFAULT 'approved'"],
+  ["merchants", "business_type", "TEXT"],
+  ["merchants", "tax_id", "TEXT"],
+  ["merchants", "contact_name", "TEXT"],
+  ["merchants", "contact_phone", "TEXT"],
+  ["merchants", "kyc_note", "TEXT"],
+  ["merchants", "kyc_submitted_at", "TEXT"],
+  ["merchants", "kyc_reviewed_at", "TEXT"],
+  ["merchants", "kyc_reviewed_by", "TEXT"],
 ];
 
 function migrate(db: Db): void {

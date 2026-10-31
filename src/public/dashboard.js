@@ -25,6 +25,7 @@
   }
 
   const TABS = [
+    { id: "kyc", label: "เปิดรับเงินจริง", perm: "users.manage", when: () => S.me.merchant.kyc.status !== "approved" },
     { id: "overview", label: "ภาพรวม", perm: "payments.view" },
     { id: "payments", label: "รายการชำระเงิน", perm: "payments.view" },
     { id: "create", label: "สร้างลิงก์ชำระเงิน", perm: "payments.create" },
@@ -49,7 +50,7 @@
       brand: "Bizhub", subtitle: m.name,
       extra: modeSwitch,
       user: S.me.user,
-      tabs: TABS.filter((t) => !t.perm || can(t.perm)).map((t) => ({ ...t, badge: t.id === "payments" && review ? review : null })),
+      tabs: TABS.filter((t) => (!t.perm || can(t.perm)) && (!t.when || t.when())).map((t) => ({ ...t, badge: t.id === "payments" && review ? review : null })),
       current: S.tab,
       onTab: go,
       onLogout: async () => { await api("/logout", { method: "POST" }).catch(() => {}); showLogin(); },
@@ -57,11 +58,12 @@
   }
 
   function go(tab) {
+    const visible = (x) => (!x.perm || can(x.perm)) && (!x.when || x.when());
     const t = TABS.find((x) => x.id === tab);
-    if (!t || (t.perm && !can(t.perm))) tab = TABS.find((x) => !x.perm || can(x.perm)).id;
+    if (!t || !visible(t)) tab = TABS.find(visible).id;
     S.tab = tab;
     renderShell();
-    const views = { overview: viewOverview, payments: viewPayments, create: viewCreate, team: viewTeam, bank: viewBank, audit: viewAudit, settings: viewSettings };
+    const views = { overview: viewOverview, payments: viewPayments, create: viewCreate, team: viewTeam, bank: viewBank, kyc: viewKyc, audit: viewAudit, settings: viewSettings };
     Promise.resolve(views[tab]()).catch((ex) => main.replaceChildren(h("p", { class: "error" }, ex.message)));
   }
 
@@ -69,6 +71,19 @@
     caps: { review: can("payments.review"), cancel: can("payments.cancel") },
     onChange: () => { if (S.tab === "overview") viewOverview(); else if (S.tab === "payments") reloadList(); },
   });
+
+  /** Shown above the overview until the shop passes review. */
+  function kycBanner() {
+    const k = S.me.merchant.kyc;
+    if (k.status === "approved") return null;
+    const text = {
+      draft: "ร้านอยู่ในโหมดทดสอบ ส่งข้อมูลและเอกสารยืนยันตัวตนร้านเพื่อเปิดรับเงินจริง",
+      submitted: "ส่งเอกสารแล้ว ทีมงานกำลังตรวจสอบ ระหว่างนี้ใช้โหมดทดสอบได้ตามปกติ",
+      rejected: "เอกสารยังไม่ผ่าน: " + (k.note || "กรุณาตรวจสอบและส่งใหม่"),
+    }[k.status];
+    return h("div", { class: "notice row" }, h("span", { class: "flex1" }, text),
+      can("users.manage") && k.status !== "submitted" ? h("button", { class: "btn sm primary", type: "button", onclick: () => go("kyc") }, k.status === "rejected" ? "แก้ไขและส่งใหม่" : "ยืนยันตัวตนร้าน") : null);
+  }
 
   // ---------- overview ----------
   async function viewOverview() {
@@ -83,6 +98,7 @@
       h("div", { class: "page-head" }, h("h1", {}, "ภาพรวม"),
         can("payments.export") ? h("button", { class: "btn", type: "button", onclick: () => UI.exportDialog(api, "/payments/export") }, "ส่งออก Excel/CSV") : null),
       h("div", { class: "grid" },
+        kycBanner(),
         h("div", { class: "grid tiles" },
           tile("ยอดขายวันนี้", baht(summary.today.amount), summary.today.count + " รายการ"),
           tile(`ยอดขาย ${summary.period.days} วัน`, baht(summary.period.amount), summary.period.count + " รายการ"),
@@ -324,6 +340,81 @@
         }))))
         : h("div", { class: "empty" }, c ? "ยังไม่มีแจ้งเตือนเงินเข้า" : "เชื่อมบัญชีเพื่อเริ่มรับแจ้งเตือน")));
     box.replaceChildren(...cards.filter(Boolean));
+  }
+
+  // ---------- shop verification (KYC) ----------
+  async function viewKyc() {
+    const box = h("div", { class: "grid narrow" }, h("p", { class: "muted" }, "กำลังโหลด…"));
+    main.replaceChildren(h("h1", {}, "เปิดรับเงินจริง"), box);
+    const res = await api("/kyc");
+    const m = res.merchant;
+    S.me.merchant = m;
+    const k = m.kyc;
+    const locked = k.status === "submitted" || k.status === "approved";
+    const statusCard = h("div", { class: "card grid" },
+      h("div", { class: "row" }, h("h2", { class: "m0 flex1" }, "สถานะ"),
+        h("span", { class: "status " + ({ draft: "", submitted: "pending", approved: "on", rejected: "off" }[k.status]) },
+          { draft: "ยังไม่ได้ส่ง", submitted: "รอตรวจสอบ", approved: "อนุมัติแล้ว", rejected: "ไม่ผ่าน" }[k.status])),
+      k.status === "rejected" ? h("div", { class: "notice" }, "เหตุผล: " + (k.note || "-")) : null,
+      k.status === "submitted" ? h("p", { class: "m0 small muted" }, "ส่งเมื่อ " + dt(k.submitted_at) + " · ทีมงานจะแจ้งผลในหน้านี้") : null,
+      !locked && res.missing.length ? h("div", {}, h("h3", {}, "ยังขาด"), h("ul", { class: "m0 small" }, res.missing.map((x) => h("li", {}, x)))) : null);
+
+    const f = (id, label, value, attrs = {}) => h("label", { class: "f", for: id }, label, h("input", { id, type: "text", value: value || "", disabled: locked ? true : null, ...attrs }));
+    const type = h("select", { id: "k-type", disabled: locked ? true : null },
+      h("option", { value: "" }, "เลือก"), h("option", { value: "individual", selected: k.business_type === "individual" ? true : null }, "บุคคลธรรมดา"),
+      h("option", { value: "company", selected: k.business_type === "company" ? true : null }, "นิติบุคคล (บริษัท / หจก.)"));
+    const err = h("p", { class: "error", role: "alert" });
+    const saveBtn = h("button", { class: "btn", type: "submit" }, "บันทึกข้อมูล");
+    const val = (id) => document.getElementById(id).value.trim();
+    const profile = h("form", { class: "card grid", onsubmit: async (e) => {
+      e.preventDefault(); err.textContent = ""; saveBtn.disabled = true;
+      try {
+        await api("/kyc", { method: "PATCH", body: {
+          name: val("k-name"), business_type: val("k-type") || undefined, tax_id: val("k-tax"), contact_name: val("k-contact"), contact_phone: val("k-phone"),
+          promptpay_id: val("k-pp") || null, bank_name: val("k-bank") || null, bank_account_no: val("k-acct") || null, bank_account_name: val("k-acctname") || null } });
+        toast("บันทึกแล้ว"); viewKyc();
+      } catch (ex) { err.textContent = ex.message; } finally { saveBtn.disabled = false; }
+    } },
+      h("h2", { class: "m0" }, "ข้อมูลร้าน"),
+      f("k-name", "ชื่อร้าน / ชื่อธุรกิจ", m.name, { required: true }),
+      h("label", { class: "f", for: "k-type" }, "ประเภทผู้ประกอบการ", type),
+      f("k-tax", "เลขประจำตัวผู้เสียภาษี / เลขบัตรประชาชน (13 หลัก)", k.tax_id, { inputmode: "numeric", maxlength: "17" }),
+      h("div", { class: "row" }, f("k-contact", "ชื่อผู้ติดต่อ", k.contact_name), f("k-phone", "เบอร์โทร", k.contact_phone, { type: "tel" })),
+      h("h2", { class: "m0 mt8" }, "บัญชีรับเงิน"),
+      h("p", { class: "m0 small muted" }, "ต้องเป็นบัญชีในชื่อร้านหรือเจ้าของร้าน หลังอนุมัติแล้ว การเปลี่ยนบัญชีรับเงินต้องติดต่อผู้ดูแลระบบ เพื่อความปลอดภัย"),
+      f("k-pp", "พร้อมเพย์ (เบอร์มือถือ / เลขบัตร / เลขผู้เสียภาษี)", m.promptpay_id),
+      h("div", { class: "row" }, f("k-bank", "ธนาคาร", m.bank_account?.bank_name), f("k-acct", "เลขที่บัญชี", m.bank_account?.account_no)),
+      f("k-acctname", "ชื่อบัญชี", m.bank_account?.account_name),
+      err, locked ? null : h("div", { class: "row" }, saveBtn));
+
+    const kindSel = h("select", { id: "doc-kind" }, Object.entries(res.kinds).map(([v, l]) => h("option", { value: v }, l)));
+    const fileIn = h("input", { type: "file", id: "doc-file", accept: "image/jpeg,image/png,image/webp,application/pdf" });
+    const docs = h("div", { class: "card grid" }, h("h2", { class: "m0" }, "เอกสาร"),
+      h("p", { class: "m0 small muted" }, "ภาพถ่ายหรือสแกนที่อ่านได้ชัด (JPG, PNG, WebP หรือ PDF ไม่เกิน 5 MB) แนะนำให้เขียนกำกับบนสำเนาว่า \"ใช้สำหรับสมัคร Bizhub เท่านั้น\""),
+      res.documents.length ? h("div", { class: "table-wrap" }, h("table", { class: "list" }, h("tbody", {}, res.documents.map((d) => h("tr", {},
+        h("td", {}, h("span", { class: "ref" }, d.kind_label), h("span", { class: "small muted" }, d.filename + " · " + Math.ceil(d.size / 1024) + " KB")),
+        h("td", { class: "num" }, h("div", { class: "actions" },
+          h("button", { class: "btn sm", type: "button", onclick: async () => { const { url } = await api.blobUrl("/kyc/documents/" + d.id); window.open(url, "_blank", "noopener"); } }, "เปิดดู"),
+          locked ? null : h("button", { class: "btn sm bad", type: "button", onclick: async () => { if (!confirm("ลบเอกสารนี้?")) return; await api("/kyc/documents/" + d.id + "/delete", { method: "POST", body: {} }); viewKyc(); } }, "ลบ")))))))) : h("p", { class: "m0 muted small" }, "ยังไม่มีเอกสาร"),
+      locked ? null : h("label", { class: "f", for: "doc-kind" }, "ประเภทเอกสาร", kindSel),
+      locked ? null : h("div", { class: "row" }, h("div", { class: "flex1" }, fileIn), h("button", { class: "btn", type: "button", onclick: async (e) => {
+        if (!fileIn.files[0]) return toast("เลือกไฟล์ก่อน");
+        e.currentTarget.disabled = true;
+        try {
+          const fd = new FormData(); fd.append("kind", kindSel.value); fd.append("file", fileIn.files[0]);
+          const r = await fetch("/dashboard/api/kyc/documents", { method: "POST", body: fd, headers: { "X-Requested-With": "bizhub-web" }, credentials: "same-origin" });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(j.error?.message || "อัปโหลดไม่สำเร็จ");
+          toast("อัปโหลดแล้ว"); viewKyc();
+        } catch (ex) { toast(ex.message); e.currentTarget.disabled = false; }
+      } }, "อัปโหลด")));
+
+    const submit = !locked ? h("div", { class: "card grid" }, h("h2", { class: "m0" }, "ส่งให้ทีมงานตรวจ"),
+      h("p", { class: "m0 small muted" }, "ระหว่างรอผลใช้โหมดทดสอบได้ตามปกติ เมื่ออนุมัติแล้วจะเปิดโหมดใช้งานจริงให้อัตโนมัติ"),
+      h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", disabled: res.missing.length ? true : null, onclick: async () => {
+        try { await api("/kyc/submit", { method: "POST", body: {} }); toast("ส่งตรวจแล้ว"); S.me = await api("/me"); viewKyc(); } catch (ex) { toast(ex.message); }
+      } }, "ส่งตรวจ"), res.missing.length ? h("span", { class: "small muted" }, "กรอกข้อมูลและแนบเอกสารให้ครบก่อน") : null)) : null;
+    box.replaceChildren(...[statusCard, profile, docs, submit].filter(Boolean));
   }
 
   async function viewAudit() {

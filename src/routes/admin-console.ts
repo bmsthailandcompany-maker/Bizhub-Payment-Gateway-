@@ -7,6 +7,7 @@ import { now } from "../db.ts";
 import { safeEqual } from "../ids.ts";
 import type { AuditService } from "../services/audit.ts";
 import { type BankService, serializeConnection } from "../services/bank.ts";
+import { KYC_DOCUMENT_KINDS, type KycDocumentKind, kycMissing, type KycService } from "../services/kyc.ts";
 import { MAX_EXPORT_ROWS, paymentExportTable } from "../services/export.ts";
 import type { MerchantService } from "../services/merchants.ts";
 import { serializeMerchant } from "../services/merchants.ts";
@@ -55,6 +56,7 @@ export interface AdminConsoleDeps {
   limiter: LoginLimiter;
   requireAdmin2fa: boolean;
   bank: BankService;
+  kyc: KycService;
 }
 
 /**
@@ -206,12 +208,15 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
         top_merchants: top,
         merchants: { active: merchantCounts.active ?? 0, total: merchantCounts.total },
         failed_webhooks: failedWebhooks,
+        pending_kyc: deps.kyc.pendingCount(),
       };
     });
 
     // ---- merchants ----
     api.get(`${BASE}/merchants`, { preHandler: need("merchants.view") }, async (req) => {
-      const { q } = z.object({ q: z.string().max(100).optional() }).parse(req.query);
+      const { q, kyc } = z
+        .object({ q: z.string().max(100).optional(), kyc: z.enum(["draft", "submitted", "approved", "rejected"]).optional() })
+        .parse(req.query);
       const since = new Date(Date.now() - 30 * 86400_000).toISOString();
       const stats = new Map(
         (
@@ -237,6 +242,7 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
         object: "list",
         data: merchants
           .list()
+          .filter((m) => !kyc || m.kyc_status === kyc)
           .filter((m) => !needle || m.name.toLowerCase().includes(needle) || m.id === needle || (m.promptpay_id ?? "").includes(needle))
           .map((m) => ({
             ...serializeMerchant(m),
@@ -264,6 +270,10 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
         api_keys: keys,
         users: users.list("merchant", m.id).map(serializeUser),
         bank_connections: deps.bank.listForMerchant(m.id).map(serializeConnection),
+        kyc_documents: deps.kyc.documents(m.id).map((d) => ({
+          id: d.id, kind: d.kind, kind_label: KYC_DOCUMENT_KINDS[d.kind as KycDocumentKind] ?? d.kind, filename: d.filename, mime: d.mime, size: d.size, created_at: d.created_at,
+        })),
+        kyc_missing: kycMissing(m, deps.kyc.documents(m.id)),
         summary: payments.summary(m.id, true),
       };
     });
@@ -274,6 +284,19 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
       const after = merchants.update(before.id, input)!;
       log(req, "merchant.update", after.id, after.id, { changes: input });
       return serializeMerchant(after);
+    });
+
+    api.get<{ Params: { id: string; docId: string } }>(`${BASE}/merchants/:id/kyc-documents/:docId`, { preHandler: need("merchants.view") }, async (req, reply) => {
+      const { row, data } = deps.kyc.document(requireMerchant(req.params.id).id, req.params.docId);
+      log(req, "kyc.document_viewed", req.params.id, row.id, { kind: row.kind });
+      return reply.type(row.mime).header("Cache-Control", "private, no-store").send(data);
+    });
+
+    api.post<{ Params: { id: string } }>(`${BASE}/merchants/:id/kyc-review`, { preHandler: need("merchants.manage") }, async (req) => {
+      const { decision, note } = z.object({ decision: z.enum(["approve", "reject"]), note: z.string().trim().max(500).optional() }).parse(req.body);
+      const m = deps.kyc.review(requireMerchant(req.params.id), decision, note || null, req.actor!);
+      log(req, decision === "approve" ? "kyc.approved" : "kyc.rejected", m.id, m.id, { note });
+      return serializeMerchant(m);
     });
 
     api.post<{ Params: { id: string } }>(`${BASE}/merchants/:id/rotate-keys`, { preHandler: need("merchants.manage") }, async (req) => {

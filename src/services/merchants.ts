@@ -15,6 +15,15 @@ export interface MerchantRow {
   active: number;
   require_2fa: number;
   notice_enabled: number;
+  kyc_status: "draft" | "submitted" | "approved" | "rejected";
+  business_type: "individual" | "company" | null;
+  tax_id: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  kyc_note: string | null;
+  kyc_submitted_at: string | null;
+  kyc_reviewed_at: string | null;
+  kyc_reviewed_by: string | null;
   created_at: string;
 }
 
@@ -47,6 +56,16 @@ export function serializeMerchant(m: MerchantRow) {
     active: m.active === 1,
     require_2fa: m.require_2fa === 1,
     notice_enabled: m.notice_enabled === 1,
+    kyc: {
+      status: m.kyc_status,
+      business_type: m.business_type,
+      tax_id: m.tax_id,
+      contact_name: m.contact_name,
+      contact_phone: m.contact_phone,
+      note: m.kyc_note,
+      submitted_at: m.kyc_submitted_at,
+      reviewed_at: m.kyc_reviewed_at,
+    },
     created_at: m.created_at,
   };
 }

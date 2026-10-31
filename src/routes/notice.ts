@@ -29,7 +29,7 @@ export async function noticeRoutes(
 
   const open = (id: string): MerchantRow => {
     const m = merchants.get(id);
-    if (!m || m.active !== 1 || m.notice_enabled !== 1 || (!m.bank_account_no && !m.promptpay_id)) {
+    if (!m || m.active !== 1 || m.kyc_status !== "approved" || m.notice_enabled !== 1 || (!m.bank_account_no && !m.promptpay_id)) {
       throw new PaymentError(404, "not_found", "ไม่พบหน้าแจ้งชำระเงินนี้");
     }
     return m;

@@ -67,11 +67,16 @@ export class UserService {
   /** Creates an account with a one-time password the user must change at first sign-in. */
   async create(
     scope: UserScope,
-    input: { merchantId?: string; email: string; name: string; role: string },
+    input: { merchantId?: string; email: string; name: string; role: string; password?: string },
   ): Promise<{ user: UserRow; temporaryPassword: string }> {
     const email = input.email.trim().toLowerCase();
     if (this.findByEmail(scope, email)) throw new PaymentError(409, "email_taken", "อีเมลนี้มีบัญชีอยู่แล้ว");
-    const password = temporaryPassword();
+    // Self sign-up chooses its own password; accounts created by someone else get a one-time one.
+    if (input.password !== undefined) {
+      const problem = passwordProblem(input.password);
+      if (problem) throw new PaymentError(400, "weak_password", problem);
+    }
+    const password = input.password ?? temporaryPassword();
     const hash = await hashPassword(password);
     const id = newId(scope === "merchant" ? "usr" : "adm");
     if (scope === "merchant") {
@@ -85,7 +90,10 @@ export class UserService {
         .prepare("INSERT INTO admin_users (id, email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)")
         .run(id, email, input.name, input.role, hash, now());
     }
-    return { user: this.get(scope, id)!, temporaryPassword: password };
+    if (input.password !== undefined) {
+      this.db.prepare(`UPDATE ${TABLE[scope]} SET must_change_password = 0 WHERE id = ?`).run(id);
+    }
+    return { user: this.get(scope, id)!, temporaryPassword: input.password !== undefined ? "" : password };
   }
 
   update(scope: UserScope, id: string, input: { name?: string; role?: string; active?: boolean }): UserRow {
