@@ -350,7 +350,7 @@
   }
 
   // ---------- shell ----------
-  function shell(root, { brand, brandClass, subtitle, pills, tabs, current, onTab, user, onLogout, extra }) {
+  function shell(root, { brand, brandClass, subtitle, pills, tabs, current, onTab, user, onLogout, onProfile, extra }) {
     const nav = h("nav", { class: "tabs", "aria-label": "เมนู" }, tabs.map((t) =>
       h("button", { type: "button", "aria-current": current === t.id ? "page" : null, onclick: () => onTab(t.id) },
         t.label, t.badge ? h("span", { class: "badge-count" }, t.badge) : null)));
@@ -361,9 +361,10 @@
         pills,
         h("span", { class: "spacer" }),
         extra || null,
-        user ? h("span", { class: "who" }, h("b", {}, user.name), user.role_label) : null,
+        user ? h("button", { class: "who profile-shortcut", type:"button", title:"แก้ไขโปรไฟล์ส่วนตัว", onclick: onProfile || (() => {}) }, h("b", {}, user.name), user.role_label) : null,
         null),
       nav));
+    nav.prepend(h("div", {class:"nav-brand-wordmark","aria-label":"Bizhub Pay"}, h("span",{},"BIZHUB"),h("strong",{},"PAY")));
     nav.append(h("button", { class:"nav-logout", type:"button", onclick: onLogout }, "⏻ ออกจากระบบ"));
     const menuButton = h("button", { class:"mobile-menu-btn", type:"button", "aria-label":"เปิดเมนู", "aria-expanded":"false" }, "☰ เมนู");
     const menuBackdrop = h("button", { class:"mobile-menu-backdrop", type:"button", "aria-label":"ปิดเมนู", hidden:true });
