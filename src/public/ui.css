@@ -206,3 +206,50 @@ nav.tabs button[aria-current="page"] { font-weight:750; }
   .login { background:#102346; border-color:#284264; }
   .login::before { color:#fff; }
 }
+
+/* Brand lockup used on every authenticated screen and both login forms. */
+header.top .brand,header.top .brand.admin {
+  display:inline-block; width:210px; min-width:180px; height:57px;
+  background:url('/assets/bizhubpay-logo.svg') center/contain no-repeat;
+  font-size:0; line-height:0; overflow:hidden; flex-shrink:0;
+}
+header.top .brand::after { content:none; }
+.login::before {
+  content:""; display:block; width:100%; height:110px;
+  background:url('/assets/bizhubpay-logo.svg') center/contain no-repeat;
+  border:0; padding:0; margin-bottom:4px;
+}
+.login h1 { font-size:18px; text-align:center; }
+.login p { text-align:center; }
+header.top .bar { gap:16px; }
+header.top nav.tabs { padding:0 0 3px; }
+header.top nav.tabs button { border-radius:9px 9px 0 0; }
+header.top nav.tabs button:hover { background:#ffffff14; }
+header.top .btn { background:#ffffff; color:#093267; border:0; }
+main > .page-head,main > h1 { color:#0a3674; }
+main > .page-head { padding:8px 0 5px; }
+main > .grid { gap:18px; }
+.tiles .tile:first-child { background:linear-gradient(120deg,#06357c,#0879db); border-color:#0756bd; }
+.tiles .tile:first-child .label,.tiles .tile:first-child .value,.tiles .tile:first-child .sub { color:#fff; }
+.tiles .tile:first-child .value { font-size:30px; }
+.status { border-radius:999px; }
+.table-wrap { border-radius:12px; }
+table.list tbody tr:hover { background:#edf6ff; }
+.chip[aria-pressed="true"] { border-color:#ff9418; }
+.chart { border-radius:16px; }
+.drawer { border-radius:20px 0 0 20px; }
+.modal { border-radius:20px; }
+.qr-out { border:2px solid #e3ebf7; border-radius:16px; }
+@media(max-width:700px) {
+ header.top .brand,header.top .brand.admin { width:155px; min-width:155px; height:45px; }
+ header.top .bar { gap:8px; }
+ header.top nav.tabs { gap:0; }
+ header.top nav.tabs button { padding:11px 12px; font-size:13px; }
+ .tiles .tile:first-child .value { font-size:24px; }
+ .login::before { height:90px; }
+}
+@media(prefers-color-scheme:dark) {
+ :root:not([data-theme="light"]) main > .page-head,:root:not([data-theme="light"]) main > h1 { color:#e8f3ff; }
+ :root:not([data-theme="light"]) table.list tbody tr:hover { background:#1c3559; }
+ :root:not([data-theme="light"]) .tiles .tile:first-child { background:linear-gradient(120deg,#06357c,#075aa8); }
+}
