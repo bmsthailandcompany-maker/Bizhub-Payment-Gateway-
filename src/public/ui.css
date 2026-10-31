@@ -337,3 +337,41 @@ header.top .bar { align-items:center; }
  header.top .bar > .btn { padding:7px 9px;font-size:12px; }
  .tiles { gap:10px; }
 }
+
+/* Mobile-first structural navigation — replaces the old horizontal tab bar. */
+.mobile-menu-btn,.mobile-menu-backdrop { display:none; }
+@media(max-width:1079px) {
+ header.top .bar { grid-template-columns:minmax(0,1fr) auto auto; }
+ .mobile-menu-btn {
+  display:inline-flex; align-items:center; justify-content:center; grid-column:2;grid-row:1;
+  background:#ff890c;color:#fff;border:0;border-radius:11px;padding:10px 13px;
+  font-weight:800;font-size:14px;min-height:44px;cursor:pointer;
+ }
+ header.top .bar>.btn { grid-column:3;grid-row:1; }
+ header.top .mode-switch { grid-column:2 / 4;grid-row:2; }
+ header.top .shop { grid-column:1;grid-row:2; }
+ header.top nav.tabs {
+  display:flex;position:fixed;top:0;left:0;bottom:0;z-index:101;
+  width:min(310px,83vw);padding:92px 14px 24px;gap:5px;
+  background:linear-gradient(160deg,#051b4b,#073d88);
+  box-shadow:8px 0 35px #001c4b55;
+  flex-direction:column;overflow-y:auto;overflow-x:hidden;
+  transform:translateX(-105%);visibility:hidden;
+  transition:transform .2s ease,visibility .2s ease;
+ }
+ header.top.menu-open nav.tabs { transform:translateX(0);visibility:visible; }
+ header.top nav.tabs button { display:block;text-align:left;width:100%;white-space:normal;font-size:15px;padding:13px 16px;border-radius:11px;flex:none; }
+ header.top nav.tabs button[aria-current="page"] { background:linear-gradient(95deg,#ffa50a,#ff7100); }
+ .mobile-menu-backdrop:not([hidden]) { display:block;position:fixed;inset:0;z-index:99;background:#061b45a6;border:0;padding:0; }
+ body.bizhub-menu-open { overflow:hidden; }
+}
+@media(max-width:520px) {
+ header.top .bar { grid-template-columns:minmax(0,1fr) auto; }
+ header.top .brand { grid-column:1;grid-row:1; }
+ .mobile-menu-btn { grid-column:2;grid-row:1; }
+ header.top .bar>.btn { grid-column:2;grid-row:2; }
+ header.top .mode-switch { grid-column:2;grid-row:3; }
+ header.top .shop { grid-column:1;grid-row:2; }
+ header.top .bar { padding:8px 12px; }
+ main.wrap { padding:15px 12px 40px; }
+}
