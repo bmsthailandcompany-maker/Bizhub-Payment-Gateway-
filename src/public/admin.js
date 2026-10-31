@@ -11,17 +11,7 @@
 
   function showLogin() {
     S.me = null;
-    UI.loginView(root, {
-      title: "Bizhub Admin", brandClass: "brand admin",
-      subtitle: "สำหรับผู้ดูแลระบบเกตเวย์",
-      altLabel: "เข้าด้วย ADMIN_TOKEN",
-      altField: { name: "admin_token", label: "ADMIN_TOKEN", placeholder: "ค่าจากไฟล์ .env", hint: "ใช้ตอนติดตั้งครั้งแรกเพื่อสร้างบัญชีแอดมิน หลังจากนั้นควรใช้บัญชีส่วนตัว" },
-      onSubmit: async (body) => {
-        const r = await api("/login", { method: "POST", body, allow401: true });
-        if (r.mfa_required) return UI.mfaPrompt(root, { api, token: r.mfa_token, onDone: boot, onBack: showLogin });
-        await boot();
-      },
-    });
+    window.location.replace("/dashboard");
   }
 
   const TABS = [
