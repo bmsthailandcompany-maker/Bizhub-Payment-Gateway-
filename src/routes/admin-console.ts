@@ -205,6 +205,49 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
       } catch { return {configured:true,connected:false,mode:"test",status:"unreachable"}; }
     });
 
+    // Sandbox-only PromptPay: charges belong to the platform's Omise test account.
+    // Do not interpret these as merchant-direct settlement or production payments.
+    const omiseSandboxRequest = async (path: string, body?: URLSearchParams) => {
+      const key = process.env.OMISE_TEST_SECRET_KEY;
+      if (!key || !/^skey_test_/.test(key)) throw new PaymentError(503, "omise_not_configured", "ยังไม่ได้ตั้งค่า Omise Test Key");
+      const response = await fetch("https://api.omise.co" + path, {
+        method: body ? "POST" : "GET",
+        headers: {
+          Authorization: "Basic " + Buffer.from(key + ":").toString("base64"),
+          ...(body ? {"Content-Type":"application/x-www-form-urlencoded"} : {}),
+        },
+        body: body?.toString(),
+        signal: AbortSignal.timeout(12000),
+      });
+      const result: any = await response.json().catch(() => ({}));
+      if (!response.ok) throw new PaymentError(502, "omise_error", "Omise Sandbox: " + String(result.message || result.code || response.status).slice(0,200));
+      return result;
+    };
+
+    api.post(`${BASE}/providers/omise/promptpay-test`, { preHandler: need("admins.manage") }, async (req) => {
+      z.object({confirm:z.literal(true)}).strict().parse(req.body);
+      const source = await omiseSandboxRequest("/sources", new URLSearchParams({
+        type:"promptpay",amount:"2000",currency:"THB",
+      }));
+      if (!/^src_/.test(String(source.id))) throw new PaymentError(502,"omise_source_invalid","Omise ไม่ส่ง Source ID");
+      const charge = await omiseSandboxRequest("/charges",new URLSearchParams({
+        amount:"2000",currency:"THB",source:String(source.id),
+        description:"BIZHUB PAY sandbox PromptPay 20 THB",
+      }));
+      deps.audit.log({merchantId:null,actor:{kind:"admin_user",id:"system",name:"Omise Sandbox",role:"super_admin",mustChangePassword:false},action:"omise.sandbox_charge_created",target:String(charge.id),details:{amount:2000,mode:"test"},ip:req.ip});
+      return {
+        id:String(charge.id),amount:charge.amount,currency:charge.currency,status:charge.status,
+        qr_url:charge.source?.scannable_code?.image?.download_uri || source.scannable_code?.image?.download_uri || null,
+        mode:"test",notice:"ห้ามสแกนชำระด้วยเงินจริง",
+      };
+    });
+
+    api.get(`${BASE}/providers/omise/charges/:id`, { preHandler: need("admins.manage") }, async (req) => {
+      const {id}=z.object({id:z.string().regex(/^chrg_test_[a-zA-Z0-9]+$/)}).parse(req.params);
+      const charge=await omiseSandboxRequest("/charges/"+encodeURIComponent(id));
+      return {id:charge.id,status:charge.status,amount:charge.amount,currency:charge.currency,mode:"test"};
+    });
+
     api.get(`${BASE}/summary`, { preHandler: need("payments.view") }, async (req) => {
       const { livemode } = z.object({ livemode: z.enum(["true", "false"]).default("true") }).parse(req.query);
       const live = livemode === "true";
