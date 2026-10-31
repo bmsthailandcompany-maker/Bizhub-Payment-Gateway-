@@ -468,34 +468,45 @@
       }catch(ex){status.textContent="ตรวจสอบไม่สำเร็จ: "+ex.message;}
       finally{check.disabled=false;}
     }},"ทดสอบการเชื่อมต่อ Omise");
+    const history=h("div",{class:"grid"},h("p",{class:"small muted"},"กำลังโหลดประวัติจาก Omise…"));
+    async function refreshHistory() {
+      try {
+        const r=await api("/providers/omise/charges");
+        const charges=r.charges||[];
+        history.replaceChildren(h("h3",{},"ประวัติ PromptPay Sandbox"),
+          h("p",{class:"small muted"},charges.length+" รายการล่าสุดจาก Omise • ไม่มีเงินจริง"));
+        if(!charges.length)history.append(h("p",{class:"small"},"ยังไม่พบรายการทดสอบ"));
+        for(const p of charges){
+          const label=h("p",{class:"small"},"สถานะ: "+p.status);
+          const update=h("button",{class:"btn",type:"button",onclick:async()=>{
+            update.disabled=true;
+            try{const s=await api("/providers/omise/charges/"+encodeURIComponent(p.id));label.textContent="สถานะ: "+s.status;}
+            catch(e){toast(e.message);}finally{update.disabled=false;}
+          }},"ตรวจสอบสถานะ");
+          history.append(h("div",{class:"card grid"},
+            h("p",{class:"mono small"},"Transaction ID: "+p.id),
+            h("p",{class:"small"},"ยอด ฿"+(Number(p.amount)/100).toFixed(2)+" • "+(p.created_at||"")),
+            label,
+            p.qr_url?h("a",{href:p.qr_url,target:"_blank",rel:"noopener noreferrer"},"ดู QR ทดสอบ (ห้ามโอนเงินจริง)"):h("span",{class:"small muted"},"ไม่มี QR URL"),
+            update));
+        }
+      }catch(e){history.replaceChildren(h("p",{class:"error"},"โหลดประวัติไม่สำเร็จ: "+e.message));}
+    }
+    const create=h("button",{class:"btn primary",type:"button",onclick:async()=>{
+      if(!confirm("สร้างรายการ PromptPay จำลอง 20 บาทใน Omise Sandbox เท่านั้น (ไม่มีเงินจริง) ใช่หรือไม่?"))return;
+      create.disabled=true;
+      try{await api("/providers/omise/promptpay-test",{method:"POST",body:{confirm:true}});toast("สร้างรายการทดสอบแล้ว");await refreshHistory();}
+      catch(e){toast(e.message);}finally{create.disabled=false;}
+    }},"สร้าง QR PromptPay ทดสอบ ฿20");
     main.replaceChildren(h("h1",{},"Payment Provider"),h("div",{class:"card grid narrow"},
       h("h2",{class:"m0"},"Omise / Opn Payments"),
       h("p",{class:"small muted"},"การตั้งค่า API ส่วนกลางของ BIZHUB PAY • ไม่เปิดเผย Secret Key • ยังไม่เปิดรับเงินจริง"),
       status,check,
-      h("div",{class:"notice small"},"การทดสอบนี้ตรวจสอบ API Key เท่านั้น ไม่ใช่การยืนยันการรับเงินเข้าบัญชีของร้านค้าแต่ละราย"),
-      (() => {
-        const output=h("div",{class:"grid"});
-        const create=h("button",{class:"btn primary",type:"button",onclick:async()=>{
-          if(!confirm("สร้างรายการ PromptPay จำลอง 20 บาทใน Omise Sandbox เท่านั้น (ไม่มีเงินจริง) ใช่หรือไม่?"))return;
-          create.disabled=true;output.replaceChildren(h("p",{},"กำลังสร้างรายการทดสอบ…"));
-          try{
-            const p=await api("/providers/omise/promptpay-test",{method:"POST",body:{confirm:true}});
-            const status=h("p",{},"สถานะ: "+p.status);
-            const refresh=h("button",{class:"btn",type:"button",onclick:async()=>{
-              try{const s=await api("/providers/omise/charges/"+encodeURIComponent(p.id));status.textContent="สถานะล่าสุด: "+s.status;}
-              catch(e){toast(e.message);}
-            }},"ตรวจสอบสถานะจาก Omise");
-            output.replaceChildren(h("p",{},"รายการทดสอบ 20.00 บาท • ไม่มีเงินจริง"),
-              h("p",{class:"mono small"},"Transaction ID: "+p.id),
-              status,
-              p.qr_url?h("a",{href:p.qr_url,target:"_blank",rel:"noopener noreferrer"},"เปิดภาพ QR ทดสอบจาก Omise (ห้ามสแกนโอนเงินจริง)"):h("p",{class:"notice small"},"Omise ยังไม่ส่ง QR Image URL"),
-              refresh,
-              h("p",{class:"small muted"},"จำลองสถานะสำเร็จ/ล้มเหลวใน Omise Dashboard แล้วกดตรวจสอบสถานะอีกครั้ง"));
-          }catch(e){output.replaceChildren(h("p",{class:"error"},e.message));}
-          finally{create.disabled=false;}
-        }},"สร้าง QR PromptPay ทดสอบ ฿20");
-        return h("div",{class:"grid"},h("h2",{},"PromptPay Sandbox"),create,output);
-      })()));
+      h("div",{class:"notice small"},"ตรวจสอบ API Key เท่านั้น ไม่ยืนยันการรับเงินเข้าบัญชีร้านค้า"),
+      h("h2",{},"PromptPay Sandbox"),create,
+      h("button",{class:"btn",type:"button",onclick:refreshHistory},"รีเฟรชประวัติรายการทดสอบ"),
+      history));
+    refreshHistory();
   }
 
   function viewAccount() {
