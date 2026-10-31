@@ -408,3 +408,23 @@ header.top .bar { align-items:center; }
  .merchant-overview-row { gap:12px;margin-bottom:12px; }
  .merchant-recent { padding:13px; }
 }
+
+/* Reference master: logo anchored above navigation in left navy sidebar. */
+@media(min-width:1080px) {
+ header.top { min-height:76px; background:#f4f8ff; border-bottom:1px solid #e0eaf8; box-shadow:none; }
+ header.top .bar { margin-left:244px; min-height:76px; padding:8px 25px; background:#f4f8ff; color:#092553; }
+ header.top .brand,header.top .brand.admin {
+  position:fixed;left:0;top:0;z-index:15;width:244px;min-width:244px;height:165px;
+  padding:22px 15px;background-color:#061e50;border-radius:0;box-shadow:none;
+  background-image:url('/assets/bizhubpay-logo.svg');background-size:calc(100% - 28px) auto;
+  background-position:center 38px;background-repeat:no-repeat;
+ }
+ header.top nav.tabs { top:165px;width:244px;padding-top:20px;background:linear-gradient(180deg,#061e50,#062d6b 75%,#041b4a); }
+ header.top nav.tabs button { min-height:47px; }
+ header.top .shop,header.top .who,header.top .who b { color:#102c5c; }
+ header.top .bar>.btn { background:#fff;color:#092553;border:1px solid #d8e4f5; }
+ main.wrap { margin-left:244px;max-width:none;padding:25px 24px 65px; }
+}
+@media(max-width:1079px) {
+ header.top .brand,header.top .brand.admin { background-color:#fff; }
+}
