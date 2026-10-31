@@ -203,13 +203,12 @@
       catch(ex){err.textContent=ex.message;pw.value="";}
       finally {btn.disabled=false;}
     }},
-      h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),
       h("h1",{},"เข้าสู่ระบบ BIZHUB PAY"),
       h("p",{class:"login-subtitle"},"แพลตฟอร์มชำระเงินและจัดการธุรกิจสำหรับทุกบทบาท"),
       h("label",{class:"f"},"อีเมล / User ID",email),
       h("label",{class:"f"},"รหัสผ่าน",pw),
       err,btn);
-    root.replaceChildren(h("div",{class:"login-scene"},h("div",{class:"login-shell"},form)));
+    root.replaceChildren(h("div",{class:"login-scene"},h("div",{class:"login-shell"},h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),form)));
     email.focus();
   }
 
