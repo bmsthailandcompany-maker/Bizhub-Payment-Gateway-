@@ -543,3 +543,32 @@ header.top nav.tabs .nav-logout { color:#fff;font-weight:750; }
   border-bottom:4px solid #ff8a0a!important;
  }
 }
+
+/* Approved compact mobile MASTER header: 20% smaller logo and height, flowing waves. */
+@media(max-width:1079px) {
+ header.top {
+  position:relative;isolation:isolate;
+  background:
+    radial-gradient(ellipse 30% 100% at 85% 8%,rgba(42,169,244,.27),transparent 90%),
+    linear-gradient(115deg,#fafdff 0%,#f1faff 49%,#bde8ff 100%)!important;
+  border-bottom:4px solid #ff8500!important;
+ }
+ header.top::before {
+  content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(ellipse 70% 45% at 7% 116%,#0059c9 0%,#038fee 47%,transparent 49%),
+    radial-gradient(ellipse 69% 37% at 23% 123%,#00b6f0 0%,#9de9ff 51%,transparent 53%),
+    radial-gradient(ellipse 55% 42% at 99% 120%,#003da0 0%,#007fe3 51%,transparent 53%),
+    radial-gradient(ellipse 56% 31% at 81% 117%,#ff8909 0%,#ffb53d 38%,transparent 42%),
+    radial-gradient(ellipse 54% 24% at 53% 119%,rgba(255,255,255,.95) 0%,transparent 76%);
+ }
+ header.top .bar {position:relative;z-index:1;grid-template-columns:90px minmax(0,1fr) 110px!important;grid-template-rows:96px!important;min-height:96px!important;padding:3px 12px!important;}
+ header.top .brand,header.top .brand.admin {width:140px!important;height:91px!important;min-width:0!important;}
+ header.top .mobile-menu-btn {align-self:center;}
+ header.top .who {align-self:center;}
+}
+@media(max-width:520px) {
+ header.top .bar {grid-template-columns:74px minmax(0,1fr) 83px!important;grid-template-rows:88px!important;min-height:88px!important;padding:2px 7px!important;}
+ header.top .brand,header.top .brand.admin {width:116px!important;height:84px!important;}
+ header.top .mobile-menu-btn {padding:8px 9px!important;font-size:12px!important;}
+}
