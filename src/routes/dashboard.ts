@@ -433,6 +433,21 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       biller_id: z.string().refine(isValidBillerId, "Biller ID ต้องเป็นตัวเลข 15 หลัก").nullable().optional(),
     });
 
+    // Sandbox-only Omise connectivity check. Never returns account data or credentials.
+    api.get("/dashboard/api/providers/omise/test", { preHandler: need("settings.view") }, async (req) => {
+      const key = process.env.OMISE_TEST_SECRET_KEY;
+      if (!key || !key.startsWith("skey_test_")) return { configured: false, connected: false, mode: "test" };
+      try {
+        const response = await fetch("https://api.omise.co/account", {
+          headers: { Authorization: "Basic " + Buffer.from(key + ":").toString("base64") },
+          signal: AbortSignal.timeout(8000),
+        });
+        return { configured: true, connected: response.ok, mode: "test", status: response.ok ? "verified" : "connection_failed" };
+      } catch {
+        return { configured: true, connected: false, mode: "test", status: "unreachable" };
+      }
+    });
+
     // Phase 2 readiness: provider-neutral integration status. Never imply a live bank connection exists.
     api.get("/dashboard/api/payment-integration", { preHandler: need("settings.view") }, async (req) => {
       const live = bank.active(req.merchant!.id, true);
