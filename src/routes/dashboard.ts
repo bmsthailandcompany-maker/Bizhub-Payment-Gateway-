@@ -433,6 +433,22 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       biller_id: z.string().refine(isValidBillerId, "Biller ID ต้องเป็นตัวเลข 15 หลัก").nullable().optional(),
     });
 
+    // Phase 2 readiness: provider-neutral integration status. Never imply a live bank connection exists.
+    api.get("/dashboard/api/payment-integration", { preHandler: need("settings.view") }, async (req) => {
+      const live = bank.active(req.merchant!.id, true);
+      const test = bank.active(req.merchant!.id, false);
+      return {
+        settlement: "merchant_direct",
+        signup_ready: true,
+        kyc_status: req.merchant!.kyc_status,
+        test_connector_configured: Boolean(test),
+        live_connector_configured: Boolean(live),
+        live_auto_verification_ready: Boolean(live && req.merchant!.kyc_status === "approved"),
+        provider_activation: "requires_provider_approval",
+        supported_event_contract: ["trans_ref", "amount", "paid_at", "ref1"],
+      };
+    });
+
     api.get("/dashboard/api/bank", { preHandler: need("settings.view") }, async (req) => {
       const c = bank.active(req.merchant!.id, req.livemode!);
       return {
