@@ -498,3 +498,36 @@ header.top .bar { align-items:center; }
  header.top .who { font-size:10px; }
  header.top .who b { font-size:11px; }
 }
+
+/* Approved white-to-sky-blue graphic header, keeping the original PNG unchanged. */
+@media(max-width:1079px) {
+ header.top {
+  background:
+   radial-gradient(ellipse 42% 80% at 81% 4%,#9ad9ff90 0%,transparent 100%),
+   linear-gradient(153deg,transparent 0 35%,#8acfff88 35.5% 39%,transparent 39.5% 100%),
+   linear-gradient(18deg,transparent 0 63%,#4ba9ed33 63.5% 70%,transparent 70.5% 100%),
+   linear-gradient(110deg,#f7fcff 0%,#edf9ff 46%,#9ad8ff 100%)!important;
+  border-bottom:4px solid #ff8a0a!important;
+ }
+ header.top .bar { grid-template-columns:90px minmax(0,1fr) 110px!important;grid-template-rows:minmax(100px,auto)!important;min-height:124px!important; }
+ header.top .mobile-menu-btn { grid-column:1!important;grid-row:1!important; }
+ header.top .brand,header.top .brand.admin {
+  grid-column:2!important;grid-row:1!important;justify-self:center!important;
+  width:175px!important;min-width:0!important;height:114px!important;
+  background:transparent url('/assets/bizhubpay-original-transparent.png') center / contain no-repeat!important;
+ }
+ header.top .who { grid-column:3!important;grid-row:1!important;display:block!important;text-align:right!important;color:#092b62!important; }
+ header.top .who b { color:#07265d!important; }
+ header.top .shop { display:none!important; }
+ header.top .spacer { display:none!important; }
+ header.top .nav-logout { margin-top:18px!important;border-top:1px solid #ffffff3b!important; }
+}
+@media(max-width:520px) {
+ header.top .bar { grid-template-columns:74px minmax(0,1fr) 83px!important;min-height:110px!important;padding:7px!important; }
+ header.top .brand,header.top .brand.admin { width:145px!important;height:105px!important; }
+ header.top .mobile-menu-btn { padding:9px 10px!important; }
+}
+@media(min-width:1080px) {
+ header.top nav.tabs .nav-logout { margin-top:auto;border-top:1px solid #ffffff33; }
+}
+header.top nav.tabs .nav-logout { color:#fff;font-weight:750; }
