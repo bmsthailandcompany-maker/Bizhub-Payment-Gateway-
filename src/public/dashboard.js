@@ -111,7 +111,7 @@
       h("div",{class:"page-head merchant-welcome"},
         h("div",{},h("h1",{},"ภาพรวมธุรกิจ"),h("p",{class:"muted m0"},"จัดการรับชำระเงินและติดตามยอดขายของ "+S.me.merchant.name)),
         can("payments.export")?h("button",{class:"btn",type:"button",onclick:()=>UI.exportDialog(api,"/payments/export")},"ส่งออก Excel/CSV"):null),
-      ...(kycBanner() ? [kycBanner()] : []),
+      ...(() => { const banner = kycBanner(); return banner ? [banner] : []; })(),
       h("div",{class:"grid tiles merchant-kpis"},
         tile("ยอดรับชำระวันนี้",baht(summary.today.amount),summary.today.count+" รายการ"),
         tile("ยอดรับชำระ "+summary.period.days+" วัน",baht(summary.period.amount),summary.period.count+" รายการ"),
