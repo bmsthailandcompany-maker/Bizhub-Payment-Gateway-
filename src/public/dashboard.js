@@ -311,6 +311,17 @@
     }).catch(()=>integrationBox.replaceChildren(h("p",{class:"error"},"ไม่สามารถตรวจสอบสถานะการเชื่อมต่อได้")));
 
     cards.push(integrationBox);
+    const omiseBox=h("div",{class:"card grid"},h("h2",{class:"m0"},"Omise Sandbox"),h("p",{class:"small muted"},"ตรวจสอบการเชื่อมต่อ API ในโหมดทดสอบเท่านั้น ไม่รับเงินจริง"));
+    const omiseStatus=h("p",{class:"small"},"ยังไม่ได้ตรวจสอบ");
+    omiseBox.append(omiseStatus,h("button",{class:"btn",type:"button",onclick:async()=>{
+      omiseStatus.textContent="กำลังตรวจสอบ…";
+      try {
+        const s=await api("/providers/omise/test");
+        omiseStatus.textContent=!s.configured?"ยังไม่มี Test Secret Key ในระบบ":s.connected?"เชื่อมต่อ Omise Sandbox สำเร็จ (ยังไม่เปิดใช้งานรับเงินจริง)":"มี Key แล้ว แต่เชื่อมต่อ API ไม่สำเร็จ";
+      } catch(ex){omiseStatus.textContent="ตรวจสอบไม่สำเร็จ: "+ex.message;}
+    }},"ทดสอบการเชื่อมต่อ Omise"));
+    cards.push(omiseBox);
+
     if (!c) {
       cards.push(h("div", { class: "card grid" },
         h("h2", { class: "m0" }, "ยืนยันเงินเข้าอัตโนมัติ ไม่ต้องรอสลิป"),
