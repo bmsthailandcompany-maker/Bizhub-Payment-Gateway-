@@ -153,7 +153,7 @@ export class MerchantService {
     return tx(this.db, () => {
       const merchant = this.get(id);
       if (!merchant || merchant.active !== 1 || merchant.kyc_status !== "approved") {
-        throw new PaymentError(403, "live_not_available", "ร้านค้ายังไม่พร้อมใช้งาน Live API");
+        throw new Error("ร้านค้ายังไม่พร้อมใช้งาน Live API");
       }
       const secret = "sk_live_" + randomToken(32);
       this.db.prepare("UPDATE api_keys SET revoked_at=? WHERE merchant_id=? AND livemode=1 AND revoked_at IS NULL").run(now(), id);
