@@ -645,3 +645,17 @@ header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {b
  header.top nav.tabs {padding-top:44px!important;}
  header.top nav.tabs .nav-brand-wordmark {padding-bottom:10px!important;margin-bottom:4px!important;}
 }
+
+/* Unified BIZHUB PAY login — original logo and separate fintech artwork. */
+.login-scene {min-height:100dvh;display:grid;place-items:center;padding:30px 16px;background:#dcefff url('/assets/bizhubpay-login-bg.svg') center/cover no-repeat;}
+.login-shell {width:min(100%,650px);}
+.login-scene .unified-login {display:grid;gap:16px;padding:35px clamp(20px,5vw,50px);border:1px solid #d7e7f8;border-radius:32px;background:#ffffffef;box-shadow:0 25px 70px #0737773d;backdrop-filter:blur(10px);}
+.login-brand {width:220px;height:160px;justify-self:center;background:url('/assets/bizhubpay-original-transparent.png') center/contain no-repeat;}
+.login-scene .unified-login h1 {font-size:clamp(23px,3.3vw,33px);text-align:center;color:#062963;margin:0;}
+.login-scene .login-subtitle {text-align:center;color:#526985;margin:0;}
+.login-roles {display:flex;justify-content:center;gap:9px;flex-wrap:wrap;}
+.login-roles span {border-radius:24px;background:#eef6ff;color:#0a3779;padding:7px 12px;font-weight:700;font-size:13px;}
+.login-roles span:nth-child(2) {color:#a95300;background:#fff3e2;}
+.login-scene .unified-login input {min-height:48px;border-radius:12px;}
+.login-scene .login-submit {width:100%;min-height:52px;background:linear-gradient(100deg,#04a9f6,#0644b2);font-size:17px;border-radius:13px;color:#fff;}
+@media(max-width:520px) {.login-scene {padding:18px 12px;}.login-scene .unified-login {padding:24px 18px;border-radius:23px;gap:13px;}.login-brand {width:180px;height:120px;}}
