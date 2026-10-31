@@ -377,3 +377,34 @@ header.top .bar { align-items:center; }
 }
 
 @media(max-width:1079px) { header.top.menu-open { z-index:110; } header.top.menu-open nav.tabs { z-index:111; } }
+
+/* Merchant dashboard V3 — actual structural layout */
+.merchant-welcome { margin:6px 0 22px; }
+.merchant-welcome h1 { font-size:25px;margin:0 0 4px; }
+.merchant-kpis { margin-bottom:18px; }
+.merchant-kpis .tile { min-height:145px; }
+.merchant-overview-row { display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,1fr);gap:18px;margin-bottom:18px;align-items:stretch; }
+.merchant-overview-row>.chart,.merchant-overview-row>.card { min-width:0; }
+.merchant-quick { padding:22px; }
+.merchant-quick-grid { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px; }
+.merchant-shortcut { background:#f3f8ff;border:1px solid #dfebfb;border-radius:16px;padding:15px 10px;min-height:112px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;cursor:pointer;color:#102c60;text-align:center; }
+.merchant-shortcut:hover { border-color:#ff981a;background:#fff9ee; }
+.merchant-shortcut strong { font-size:13px;line-height:1.35; }
+.shortcut-symbol { display:grid;place-items:center;background:linear-gradient(135deg,#ffad0b,#ff6c00);color:white;font-size:27px;font-weight:900;border-radius:13px;width:52px;height:52px;box-shadow:0 5px 12px #ff810029; }
+.merchant-shortcut:nth-child(2) .shortcut-symbol { background:linear-gradient(135deg,#16a6f7,#0652c4); }
+.merchant-shortcut:nth-child(3) .shortcut-symbol { background:linear-gradient(135deg,#7765e9,#5234b3); }
+.merchant-shortcut:nth-child(4) .shortcut-symbol { background:linear-gradient(135deg,#17c988,#079b63); }
+.merchant-recent { overflow:hidden; }
+.merchant-recent h2 { margin-bottom:14px; }
+@media(max-width:1100px) { .merchant-overview-row { grid-template-columns:1fr; } }
+@media(max-width:650px) {
+ .merchant-welcome { align-items:flex-start; }
+ .merchant-welcome h1 { font-size:21px; }
+ .merchant-kpis { grid-template-columns:repeat(2,minmax(0,1fr));gap:10px; }
+ .merchant-kpis .tile { padding:15px;min-height:145px; }
+ .merchant-kpis .tile .value { font-size:24px;word-break:break-word; }
+ .merchant-quick-grid { gap:10px; }
+ .merchant-shortcut { min-height:100px; }
+ .merchant-overview-row { gap:12px;margin-bottom:12px; }
+ .merchant-recent { padding:13px; }
+}
