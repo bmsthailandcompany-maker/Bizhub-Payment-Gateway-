@@ -659,3 +659,15 @@ header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {b
 .login-scene .unified-login input {min-height:48px;border-radius:12px;}
 .login-scene .login-submit {width:100%;min-height:52px;background:linear-gradient(100deg,#04a9f6,#0644b2);font-size:17px;border-radius:13px;color:#fff;}
 @media(max-width:520px) {.login-scene {padding:18px 12px;}.login-scene .unified-login {padding:24px 18px;border-radius:23px;gap:13px;}.login-brand {width:180px;height:120px;}}
+
+/* Login final: prevent legacy pseudo-logo, constrain card and maintain one original logo. */
+.login-scene .unified-login::before,.login-scene .unified-login::after {content:none!important;display:none!important;}
+.login-scene .unified-login {max-width:none!important;width:100%!important;margin:0!important;position:relative;box-sizing:border-box;min-height:0;}
+.login-scene .login-brand {display:block!important;flex:none!important;width:205px;height:135px;margin:0 auto!important;background-image:url('/assets/bizhubpay-original-transparent.png')!important;background-position:center!important;background-size:contain!important;background-repeat:no-repeat!important;}
+.login-scene .login-roles {display:none!important;}
+.login-scene {background:#dcefff url('/assets/bizhubpay-login-bg.svg') center/cover no-repeat!important;min-height:100dvh;}
+@media(max-width:520px) {
+ .login-scene {padding:18px 12px!important;align-items:center;}
+ .login-scene .unified-login {margin:0!important;padding:24px 18px!important;}
+ .login-scene .login-brand {width:175px!important;height:116px!important;}
+}
