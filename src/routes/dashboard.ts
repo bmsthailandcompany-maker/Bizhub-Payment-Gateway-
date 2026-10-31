@@ -247,6 +247,28 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       return { name: updated.name };
     });
 
+    api.post("/dashboard/api/keys/live/rotate", async (req) => {
+      if (req.actor!.kind !== "merchant_user" || req.actor!.role !== "owner") {
+        throw new PaymentError(403, "forbidden", "เฉพาะบัญชีเจ้าของร้านเท่านั้น");
+      }
+      const { password, confirm } = z.object({
+        password: z.string().min(1).max(200),
+        confirm: z.literal(true),
+      }).strict().parse(req.body);
+      const key = loginKey(req, "rotate-live:" + req.actor!.id);
+      if (limiter.blocked(key)) throw new PaymentError(429, "too_many_attempts", "ลองใหม่ภายหลัง");
+      const owner = users.get("merchant", req.actor!.id!);
+      const ok = await verifyPassword(password, owner?.password_hash ?? DUMMY_HASH);
+      if (!owner || owner.active !== 1 || !ok) {
+        limiter.fail(key);
+        throw new PaymentError(403, "invalid_password", "รหัสผ่านไม่ถูกต้อง");
+      }
+      limiter.succeed(key);
+      const secret = merchants.rotateLiveKey(req.merchant!.id);
+      log(req, "merchant.live_key_rotated", req.merchant!.id);
+      return { live_secret_key: secret };
+    });
+
     api.post("/dashboard/api/password", async (req) => {
       if (req.actor!.kind !== "merchant_user") throw new PaymentError(400, "not_a_user", "เข้าด้วย Secret key ไม่มีรหัสผ่านให้เปลี่ยน");
       const { current_password, new_password } = passwordSchema.parse(req.body);
