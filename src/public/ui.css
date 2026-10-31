@@ -625,3 +625,11 @@ header.top nav.tabs .nav-logout { color:#fff;font-weight:750; }
 .merchant-kpis .tile:nth-child(3)::after {filter:drop-shadow(0 3px 5px #ff950040);}
 .merchant-kpis .tile:nth-child(4)::after {filter:drop-shadow(-4px 3px 5px #00a2e833);}
 @media(max-width:650px) {.merchant-kpis .tile:nth-child(2)::after {width:44px;height:44px;}}
+
+/* Drawer brand wordmark and accessible personal profile shortcut. */
+header.top nav.tabs .nav-brand-wordmark {display:flex;justify-content:center;align-items:baseline;gap:2px;padding:7px 5px 17px;margin:0 0 8px;border-bottom:1px solid #ffffff30;font-family:Arial,sans-serif;font-weight:900;font-size:25px;letter-spacing:-1px;white-space:nowrap;color:#fff;text-shadow:0 2px 6px #001c5a;}
+header.top nav.tabs .nav-brand-wordmark strong {color:#ff990e;font-weight:900;}
+header.top .profile-shortcut {background:transparent;border:0;cursor:pointer;padding:7px 8px;border-radius:10px;min-width:0;text-align:right;font:inherit;}
+header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {background:#ffffff3d;outline:2px solid #138cef;outline-offset:1px;}
+@media(max-width:1079px) {header.top nav.tabs .nav-brand-wordmark {font-size:27px;}header.top .profile-shortcut {grid-column:3!important;grid-row:1!important;justify-self:end;}}
+@media(min-width:1080px) {header.top nav.tabs .nav-brand-wordmark {display:none;}header.top .profile-shortcut {color:#08275a!important;}}
