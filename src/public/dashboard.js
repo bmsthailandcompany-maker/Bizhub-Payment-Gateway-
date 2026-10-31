@@ -514,6 +514,30 @@
         h("button",{class:"btn primary",type:"submit"},"บันทึกชื่อ"));
       cards.push(form);
     }
+    if (S.me.user.kind === "merchant_user" && S.me.user.role === "owner") {
+      const password = h("input",{type:"password",autocomplete:"current-password",required:true,placeholder:"รหัสผ่านบัญชีเจ้าของร้าน"});
+      const result = h("div",{class:"grid",hidden:true});
+      const btn = h("button",{class:"btn danger",type:"submit"},"ยืนยันและออก Live Secret Key ใหม่");
+      const form = h("form",{class:"card grid",onsubmit:async(e)=>{
+        e.preventDefault();
+        if (!window.confirm("Live Secret Key เดิมจะใช้งานไม่ได้ทันที ระบบที่เชื่อมต่ออยู่ต้องเปลี่ยนเป็น Key ใหม่ ยืนยันหรือไม่?")) return;
+        btn.disabled=true;
+        try {
+          const r=await api("/keys/live/rotate",{method:"POST",body:{password:password.value,confirm:true}});
+          password.value="";
+          const field=h("input",{type:"text",readOnly:true,value:r.live_secret_key,autocomplete:"off",spellcheck:false,class:"mono"});
+          const copy=h("button",{class:"btn",type:"button",onclick:()=>navigator.clipboard.writeText(field.value).then(()=>toast("คัดลอกแล้ว")).catch(()=>toast("คัดลอกไม่สำเร็จ"))},"คัดลอก Key");
+          result.hidden=false;
+          result.replaceChildren(h("p",{class:"small"},"Live Secret Key ใหม่ (แสดงครั้งเดียว กรุณาจัดเก็บในที่ปลอดภัย)"),field,copy);
+          toast("ออก Live Secret Key ใหม่แล้ว");
+        }catch(ex){toast(ex.message);}
+        finally{btn.disabled=false;}
+      }},
+        h("h2",{},"ออก Live Secret Key ใหม่"),
+        h("p",{class:"small muted"},"เฉพาะเจ้าของร้าน • Key เดิมจะถูกยกเลิกทันทีหลังยืนยัน • Test Key ไม่เปลี่ยน"),
+        h("label",{class:"f"},"ยืนยันด้วยรหัสผ่านเจ้าของร้าน",password),btn,result);
+      cards.push(form);
+    }
     if (S.me.user.kind === "merchant_user") {
       const mfaBox = h("div");
       cards.push(mfaBox);
