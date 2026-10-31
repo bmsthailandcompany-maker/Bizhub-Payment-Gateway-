@@ -362,8 +362,9 @@
         h("span", { class: "spacer" }),
         extra || null,
         user ? h("span", { class: "who" }, h("b", {}, user.name), user.role_label) : null,
-        h("button", { class: "btn sm", type: "button", onclick: onLogout }, "ออกจากระบบ")),
+        null),
       nav));
+    nav.append(h("button", { class:"nav-logout", type:"button", onclick: onLogout }, "⏻ ออกจากระบบ"));
     const menuButton = h("button", { class:"mobile-menu-btn", type:"button", "aria-label":"เปิดเมนู", "aria-expanded":"false" }, "☰ เมนู");
     const menuBackdrop = h("button", { class:"mobile-menu-backdrop", type:"button", "aria-label":"ปิดเมนู", hidden:true });
     const toggleMenu = (open) => {
