@@ -20,13 +20,13 @@
       location.href = "/dashboard";
     } catch (ex) { err.textContent = ex.message; } finally { btn.disabled = false; }
   } },
-    h("h1", { class: "m0" }, "สมัครใช้งาน Bizhub"),
-    h("p", {}, "รับเงินผ่าน PromptPay และโอนเงิน พร้อมตรวจสลิปอัตโนมัติ เริ่มทดลองในโหมดทดสอบได้ทันที เปิดรับเงินจริงหลังส่งเอกสารยืนยันตัวตนร้าน"),
+    h("h1", { class: "m0" }, "สมัครร้านค้า BIZHUB PAY"),
+    h("p", {}, "สมัครและเริ่มใช้งาน Dashboard ได้ทันทีโดยไม่จำกัดอายุร้านค้า • สร้างรายการและลิงก์ชำระเงินในโหมดทดสอบ • เปิดยืนยันเงินเข้าอัตโนมัติเมื่อผ่านการตรวจสอบและเชื่อมต่อผู้ให้บริการที่รองรับ"),
     field("business", "ชื่อร้าน / ชื่อธุรกิจ", { type: "text", required: true, maxlength: "120", autocomplete: "organization" }),
     field("contact", "ชื่อผู้ติดต่อ", { type: "text", required: true, maxlength: "120", autocomplete: "name" }),
     field("email", "อีเมล (ใช้เข้าสู่ระบบ)", { type: "email", required: true, autocomplete: "email" }),
     field("phone", "เบอร์โทร", { type: "tel", required: true, autocomplete: "tel", placeholder: "0812345678" }),
-    field("password", "รหัสผ่าน", { type: "password", required: true, autocomplete: "new-password" }, "อย่างน้อย 10 ตัวอักษร มีทั้งตัวอักษรและตัวเลข"),
+    field("password", "รหัสผ่าน", { type: "password", required: true, autocomplete: "new-password" }, "ตั้งรหัสผ่านที่คาดเดายากตามข้อกำหนดความปลอดภัย"),
     field("password2", "ยืนยันรหัสผ่าน", { type: "password", required: true, autocomplete: "new-password" }),
     h("label", { class: "check" }, terms, h("span", {}, "ยอมรับเงื่อนไขการใช้บริการ และ ", h("a", { href: "/privacy", target: "_blank", rel: "noopener" }, "นโยบายความเป็นส่วนตัว"))),
     err, h("div", { class: "row" }, btn, h("span", { class: "spacer" }), h("a", { class: "small", href: "/dashboard" }, "มีบัญชีอยู่แล้ว? เข้าสู่ระบบ")));

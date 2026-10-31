@@ -11,17 +11,7 @@
 
   function showLogin() {
     S.me = null;
-    UI.loginView(root, {
-      title: "Bizhub Admin", brandClass: "brand admin",
-      subtitle: "สำหรับผู้ดูแลระบบเกตเวย์",
-      altLabel: "เข้าด้วย ADMIN_TOKEN",
-      altField: { name: "admin_token", label: "ADMIN_TOKEN", placeholder: "ค่าจากไฟล์ .env", hint: "ใช้ตอนติดตั้งครั้งแรกเพื่อสร้างบัญชีแอดมิน หลังจากนั้นควรใช้บัญชีส่วนตัว" },
-      onSubmit: async (body) => {
-        const r = await api("/login", { method: "POST", body, allow401: true });
-        if (r.mfa_required) return UI.mfaPrompt(root, { api, token: r.mfa_token, onDone: boot, onBack: showLogin });
-        await boot();
-      },
-    });
+    window.location.replace("/dashboard");
   }
 
   const TABS = [
@@ -33,6 +23,7 @@
     { id: "webhooks", label: "Webhook", perm: "merchants.view" },
     { id: "admins", label: "บัญชีแอดมิน", perm: "admins.manage" },
     { id: "audit", label: "ประวัติการใช้งาน", perm: "audit.view" },
+    { id: "providers", label: "Payment Provider", perm: "admins.manage" },
     { id: "account", label: "บัญชีของฉัน", perm: null },
   ];
 
@@ -56,7 +47,7 @@
     if (!t || (t.perm && !can(t.perm))) tab = TABS.find((x) => !x.perm || can(x.perm)).id;
     S.tab = tab;
     renderShell(S.badges);
-    const views = { overview: viewOverview, merchants: viewMerchants, kyc: viewKycQueue, payments: viewPayments, billing: viewBilling, webhooks: viewWebhooks, admins: viewAdmins, audit: viewAudit, account: viewAccount };
+    const views = { overview: viewOverview, merchants: viewMerchants, kyc: viewKycQueue, payments: viewPayments, billing: viewBilling, webhooks: viewWebhooks, admins: viewAdmins, audit: viewAudit, providers: viewProviders, account: viewAccount };
     Promise.resolve(views[tab]()).catch((ex) => main.replaceChildren(h("p", { class: "error" }, ex.message)));
   }
 
@@ -467,6 +458,57 @@
   }
 
   // ---------- my account ----------
+  function viewProviders() {
+    const status=h("p",{class:"small muted"},"ยังไม่ได้ตรวจสอบ");
+    const check=h("button",{class:"btn primary",type:"button",onclick:async()=>{
+      check.disabled=true;status.textContent="กำลังตรวจสอบ Omise Sandbox…";
+      try {
+        const r=await api("/providers/omise/test");
+        status.textContent=!r.configured?"ไม่พบ Omise Test Secret Key ใน Railway":r.connected?"เชื่อมต่อ Omise Sandbox สำเร็จ (Test Mode เท่านั้น)":"พบ Key แล้ว แต่ Omise API ไม่ตอบรับ";
+      }catch(ex){status.textContent="ตรวจสอบไม่สำเร็จ: "+ex.message;}
+      finally{check.disabled=false;}
+    }},"ทดสอบการเชื่อมต่อ Omise");
+    const history=h("div",{class:"grid"},h("p",{class:"small muted"},"กำลังโหลดประวัติจาก Omise…"));
+    async function refreshHistory() {
+      try {
+        const r=await api("/providers/omise/charges");
+        const charges=r.charges||[];
+        history.replaceChildren(h("h3",{},"ประวัติ PromptPay Sandbox"),
+          h("p",{class:"small muted"},charges.length+" รายการล่าสุดจาก Omise • ไม่มีเงินจริง"));
+        if(!charges.length)history.append(h("p",{class:"small"},"ยังไม่พบรายการทดสอบ"));
+        for(const p of charges){
+          const label=h("p",{class:"small"},"สถานะ: "+p.status);
+          const update=h("button",{class:"btn",type:"button",onclick:async()=>{
+            update.disabled=true;
+            try{const s=await api("/providers/omise/charges/"+encodeURIComponent(p.id));label.textContent="สถานะ: "+s.status;}
+            catch(e){toast(e.message);}finally{update.disabled=false;}
+          }},"ตรวจสอบสถานะ");
+          history.append(h("div",{class:"card grid"},
+            h("p",{class:"mono small"},"Transaction ID: "+p.id),
+            h("p",{class:"small"},"ยอด ฿"+(Number(p.amount)/100).toFixed(2)+" • "+(p.created_at||"")),
+            label,
+            p.qr_url?h("a",{href:p.qr_url,target:"_blank",rel:"noopener noreferrer"},"ดู QR ทดสอบ (ห้ามโอนเงินจริง)"):h("span",{class:"small muted"},"ไม่มี QR URL"),
+            update));
+        }
+      }catch(e){history.replaceChildren(h("p",{class:"error"},"โหลดประวัติไม่สำเร็จ: "+e.message));}
+    }
+    const create=h("button",{class:"btn primary",type:"button",onclick:async()=>{
+      if(!confirm("สร้างรายการ PromptPay จำลอง 20 บาทใน Omise Sandbox เท่านั้น (ไม่มีเงินจริง) ใช่หรือไม่?"))return;
+      create.disabled=true;
+      try{await api("/providers/omise/promptpay-test",{method:"POST",body:{confirm:true}});toast("สร้างรายการทดสอบแล้ว");await refreshHistory();}
+      catch(e){toast(e.message);}finally{create.disabled=false;}
+    }},"สร้าง QR PromptPay ทดสอบ ฿20");
+    main.replaceChildren(h("h1",{},"Payment Provider"),h("div",{class:"card grid narrow"},
+      h("h2",{class:"m0"},"Omise / Opn Payments"),
+      h("p",{class:"small muted"},"การตั้งค่า API ส่วนกลางของ BIZHUB PAY • ไม่เปิดเผย Secret Key • ยังไม่เปิดรับเงินจริง"),
+      status,check,
+      h("div",{class:"notice small"},"ตรวจสอบ API Key เท่านั้น ไม่ยืนยันการรับเงินเข้าบัญชีร้านค้า"),
+      h("h2",{},"PromptPay Sandbox"),create,
+      h("button",{class:"btn",type:"button",onclick:refreshHistory},"รีเฟรชประวัติรายการทดสอบ"),
+      history));
+    refreshHistory();
+  }
+
   function viewAccount() {
     const mfaBox = h("div", { class: "narrow" });
     if (S.me.user.kind === "admin_user") UI.twoFactorCard(mfaBox, { api }).catch((ex) => mfaBox.replaceChildren(h("p", { class: "error" }, ex.message)));

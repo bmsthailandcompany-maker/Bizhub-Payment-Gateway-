@@ -26,7 +26,7 @@ export const DUMMY_HASH =
 
 /** Returns a Thai error message, or null when the password is acceptable. */
 export function passwordProblem(password: string): string | null {
-  if (password.length < 10) return "รหัสผ่านต้องยาวอย่างน้อย 10 ตัวอักษร";
+  if (password.length < 6) return "รหัสผ่านต้องยาวอย่างน้อย 6 ตัวอักษร";
   if (password.length > 200) return "รหัสผ่านยาวเกินไป";
   if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) return "รหัสผ่านต้องมีทั้งตัวอักษรและตัวเลข";
   return null;
