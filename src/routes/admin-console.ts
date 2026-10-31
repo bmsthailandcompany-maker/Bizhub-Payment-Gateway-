@@ -242,6 +242,21 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
       };
     });
 
+    api.get(`${BASE}/providers/omise/charges`, { preHandler: need("admins.manage") }, async () => {
+      const response = await omiseSandboxRequest("/charges?limit=50");
+      const charges = Array.isArray(response.data) ? response.data : [];
+      return { mode:"test", charges:charges.filter((charge:any) =>
+        charge.livemode === false &&
+        typeof charge.id === "string" && charge.id.startsWith("chrg_test_") &&
+        typeof charge.description === "string" &&
+        charge.description.startsWith("BIZHUB PAY sandbox PromptPay")
+      ).map((charge:any) => ({
+        id:charge.id,status:charge.status,amount:charge.amount,currency:charge.currency,
+        created_at:charge.created_at,
+        qr_url:charge.source?.scannable_code?.image?.download_uri ?? null,
+      })) };
+    });
+
     api.get(`${BASE}/providers/omise/charges/:id`, { preHandler: need("admins.manage") }, async (req) => {
       const {id}=z.object({id:z.string().regex(/^chrg_test_[a-zA-Z0-9]+$/)}).parse(req.params);
       const charge=await omiseSandboxRequest("/charges/"+encodeURIComponent(id));
