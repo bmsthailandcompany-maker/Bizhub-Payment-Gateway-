@@ -192,28 +192,25 @@
   }
 
   // ---------- login & password ----------
-  function loginView(root, { title, subtitle, brandClass, onSubmit, altLabel, altField }) {
-    let alt = false;
-    const err = h("p", { class: "error", role: "alert" });
-    const email = h("input", { type: "email", id: "email", autocomplete: "username", required: true });
-    const pw = h("input", { type: "password", id: "password", autocomplete: "current-password", required: true });
-    const key = h("input", { type: "password", id: "altkey", autocomplete: "off", placeholder: altField.placeholder });
-    const userFields = h("div", { class: "grid" }, h("label", { class: "f", for: "email" }, "อีเมล", email), h("label", { class: "f", for: "password" }, "รหัสผ่าน", pw));
-    const altFields = h("div", { class: "grid", hidden: true }, h("label", { class: "f", for: "altkey" }, altField.label, key), h("p", { class: "small" }, altField.hint));
-    const toggle = h("button", { class: "link small", type: "button", onclick: () => {
-      alt = !alt; userFields.hidden = alt; altFields.hidden = !alt;
-      email.required = !alt; pw.required = !alt; key.required = alt;
-      toggle.textContent = alt ? "เข้าด้วยอีเมลและรหัสผ่าน" : altLabel;
-      (alt ? key : email).focus();
-    } }, altLabel);
-    const btn = h("button", { class: "btn primary", type: "submit" }, "เข้าสู่ระบบ");
-    const form = h("form", { class: "card login", onsubmit: async (e) => {
-      e.preventDefault(); err.textContent = ""; btn.disabled = true;
-      try { await onSubmit(alt ? { [altField.name]: key.value.trim() } : { email: email.value.trim(), password: pw.value }); }
-      catch (ex) { err.textContent = ex.message; pw.value = ""; }
-      finally { btn.disabled = false; }
-    } }, h("h1", { class: "m0 " + (brandClass || "") }, title), h("p", {}, subtitle), userFields, altFields, err, h("div", { class: "row" }, btn, h("span", { class: "spacer" }), toggle));
-    root.replaceChildren(h("div", { class: "wrap" }, form));
+  function loginView(root, { onSubmit }) {
+    const err = h("p",{class:"error",role:"alert"});
+    const email = h("input",{type:"email",id:"email",autocomplete:"username",required:true,placeholder:"อีเมลผู้ใช้งาน"});
+    const pw = h("input",{type:"password",id:"password",autocomplete:"current-password",required:true,placeholder:"รหัสผ่าน"});
+    const btn = h("button",{class:"btn primary login-submit",type:"submit"},"เข้าสู่ระบบ");
+    const form = h("form",{class:"card login unified-login",onsubmit:async(e)=>{
+      e.preventDefault();err.textContent="";btn.disabled=true;
+      try {await onSubmit({email:email.value.trim(),password:pw.value});}
+      catch(ex){err.textContent=ex.message;pw.value="";}
+      finally {btn.disabled=false;}
+    }},
+      h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),
+      h("h1",{},"เข้าสู่ระบบ BIZHUB PAY"),
+      h("p",{class:"login-subtitle"},"แพลตฟอร์มชำระเงินและจัดการธุรกิจสำหรับทุกบทบาท"),
+      h("div",{class:"login-roles"},h("span",{},"Admin"),h("span",{},"เจ้าของร้าน"),h("span",{},"พนักงาน")),
+      h("label",{class:"f"},"อีเมล / User ID",email),
+      h("label",{class:"f"},"รหัสผ่าน",pw),
+      err,btn);
+    root.replaceChildren(h("div",{class:"login-scene"},h("div",{class:"login-shell"},form)));
     email.focus();
   }
 
