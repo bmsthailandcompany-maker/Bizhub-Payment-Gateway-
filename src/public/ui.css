@@ -253,3 +253,21 @@ table.list tbody tr:hover { background:#edf6ff; }
  :root:not([data-theme="light"]) table.list tbody tr:hover { background:#1c3559; }
  :root:not([data-theme="light"]) .tiles .tile:first-child { background:linear-gradient(120deg,#06357c,#075aa8); }
 }
+
+/* Desktop merchant/admin navigation: persistent side rail, mobile retains horizontal tabs. */
+@media(min-width:1080px) {
+  header.top { position:static; }
+  header.top .bar { max-width:none; padding:6px max(20px,calc((100vw - 1440px)/2)); min-height:75px; }
+  header.top nav.tabs {
+    position:fixed; top:75px; left:0; bottom:0; z-index:4;
+    width:224px; display:flex; flex-direction:column; gap:4px;
+    overflow-y:auto; overflow-x:hidden; padding:22px 10px;
+    background:linear-gradient(180deg,#071e51,#083879);
+    border-right:1px solid #194b90; box-shadow:4px 0 16px #05255a12;
+  }
+  header.top nav.tabs button { text-align:left; padding:12px 15px; border:0; border-radius:11px; white-space:normal; color:#dbeaff; }
+  header.top nav.tabs button[aria-current="page"] { background:#1475d2; color:white; border-left:4px solid #ff9418; padding-left:11px; }
+  header.top nav.tabs button:hover { background:#ffffff18; }
+  main.wrap { max-width:1400px; margin-left:224px; padding:25px 28px 65px; }
+}
+@media(min-width:1080px) and (max-width:1260px) { main.wrap { padding:22px 18px; } }
