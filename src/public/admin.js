@@ -101,6 +101,7 @@
     { name: "bank_account_no", label: "เลขที่บัญชี", value: m.bank_account?.account_no || "" },
     { name: "bank_account_name", label: "ชื่อบัญชี", value: m.bank_account?.account_name || "" },
     { name: "webhook_url", label: "Webhook URL", type: "text", value: m.webhook_url || "", placeholder: "https://..." },
+    { name: "privacy_url", label: "ลิงก์นโยบายความเป็นส่วนตัวของร้าน (PDPA)", type: "text", value: m.privacy_url || "", placeholder: "https://..." },
   ];
   const nullIfEmpty = (v) => Object.fromEntries(Object.entries(v).map(([k, x]) => [k, x === "" ? null : x]));
 

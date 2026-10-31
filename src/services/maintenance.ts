@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Db } from "../db.ts";
 import { now } from "../db.ts";
+import { putObject, type S3Config } from "./s3.ts";
 
 /**
  * Housekeeping for a self-hosted install: daily database backups and, when the shop sets a
@@ -10,10 +11,21 @@ import { now } from "../db.ts";
  */
 export class MaintenanceService {
   private lastBackupAt = 0;
+  /** Database backups written locally but not yet copied off-site (retried each run). */
+  private pendingOffsite = new Set<string>();
+  lastOffsiteError: string | null = null;
 
   constructor(
     private readonly db: Db,
-    private readonly opts: { dataDir: string; slipDir: string; slipRetentionDays: number; backupIntervalHours: number; backupKeep: number },
+    private readonly opts: {
+      dataDir: string;
+      slipDir: string;
+      slipRetentionDays: number;
+      backupIntervalHours: number;
+      backupKeep: number;
+      offsite?: S3Config | null;
+      fetchImpl?: typeof fetch;
+    },
   ) {
     const newest = this.listBackups()[0];
     if (newest) this.lastBackupAt = fs.statSync(newest).mtimeMs;
@@ -62,9 +74,47 @@ export class MaintenanceService {
     return rows.length;
   }
 
+  /**
+   * Copies new database backups and slip images to S3-compatible storage, so a lost server
+   * does not take the only copy with it. Failures are kept and retried on the next run.
+   */
+  async syncOffsite(limit = 50): Promise<{ uploaded: number }> {
+    const cfg = this.opts.offsite;
+    if (!cfg) return { uploaded: 0 };
+    let uploaded = 0;
+    try {
+      for (const file of [...this.pendingOffsite]) {
+        if (fs.existsSync(file)) {
+          await putObject(cfg, `db/${path.basename(file)}`, fs.readFileSync(file), "application/vnd.sqlite3", this.opts.fetchImpl);
+          uploaded++;
+        }
+        this.pendingOffsite.delete(file);
+      }
+      const slips = this.db
+        .prepare("SELECT id, slip_path, slip_mime FROM payments WHERE slip_path IS NOT NULL AND slip_offsite_at IS NULL LIMIT ?")
+        .all(limit) as { id: string; slip_path: string; slip_mime: string }[];
+      for (const s of slips) {
+        const file = path.join(this.opts.slipDir, path.basename(s.slip_path));
+        if (fs.existsSync(file)) {
+          await putObject(cfg, `slips/${path.basename(s.slip_path)}`, fs.readFileSync(file), s.slip_mime || "application/octet-stream", this.opts.fetchImpl);
+          uploaded++;
+        }
+        this.db.prepare("UPDATE payments SET slip_offsite_at = ? WHERE id = ?").run(now(), s.id);
+      }
+      this.lastOffsiteError = null;
+    } catch (err) {
+      this.lastOffsiteError = err instanceof Error ? err.message : String(err);
+    }
+    return { uploaded };
+  }
+
   /** Called by the background job loop. */
-  run(): { backup?: string; purged: number } {
+  async run(): Promise<{ backup?: string; purged: number; uploaded: number; offsiteError: string | null }> {
     const due = this.opts.backupIntervalHours > 0 && Date.now() - this.lastBackupAt >= this.opts.backupIntervalHours * 3600_000;
-    return { backup: due ? this.backup() : undefined, purged: this.purgeSlips() };
+    const backup = due ? this.backup() : undefined;
+    if (backup && this.opts.offsite) this.pendingOffsite.add(backup);
+    const purged = this.purgeSlips();
+    const { uploaded } = await this.syncOffsite();
+    return { backup, purged, uploaded, offsiteError: this.lastOffsiteError };
   }
 }

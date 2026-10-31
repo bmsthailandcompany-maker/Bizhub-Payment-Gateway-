@@ -12,8 +12,13 @@ export interface Config {
     | { provider: "easyslip"; apiKey: string; baseUrl?: string }
     | { provider: "slipok"; branchId: string; apiKey: string }
     | null;
+  /** Who runs this gateway, shown on the public privacy page. */
+  operatorName?: string;
+  operatorContact?: string | null;
   /** Delete slip images of closed payments after this many days (0 keeps them). */
   slipRetentionDays?: number;
+  /** S3-compatible bucket that receives copies of backups and slips. */
+  offsiteBackup?: import("./services/s3.ts").S3Config | null;
   /** Hours between automatic database backups into DATA_DIR/backups (0 disables). */
   backupIntervalHours?: number;
   /** How many backups to keep. */
@@ -42,8 +47,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     workerIntervalMs: Number(env.WORKER_INTERVAL_MS ?? 5000),
     requireAdmin2fa: env.ADMIN_REQUIRE_2FA === "true",
     slipRetentionDays: Number(env.SLIP_RETENTION_DAYS ?? 0),
+    operatorName: env.OPERATOR_NAME || "ผู้ให้บริการระบบ Bizhub",
+    operatorContact: env.OPERATOR_CONTACT || null,
     backupIntervalHours: Number(env.BACKUP_INTERVAL_HOURS ?? 24),
     backupKeep: Number(env.BACKUP_KEEP ?? 14),
+    offsiteBackup: loadOffsite(env),
   };
 }
 
@@ -61,4 +69,20 @@ function loadSlipVerifier(env: NodeJS.ProcessEnv): Config["slipVerifier"] {
     return { provider, branchId: env.SLIPOK_BRANCH_ID, apiKey: env.SLIPOK_API_KEY };
   }
   throw new Error(`Unknown SLIP_VERIFIER '${provider}' (expected easyslip, slipok or none)`);
+}
+
+function loadOffsite(env: NodeJS.ProcessEnv): Config["offsiteBackup"] {
+  const { BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET, BACKUP_S3_ACCESS_KEY_ID, BACKUP_S3_SECRET_ACCESS_KEY } = env;
+  if (!BACKUP_S3_ENDPOINT && !BACKUP_S3_BUCKET) return null;
+  if (!BACKUP_S3_ENDPOINT || !BACKUP_S3_BUCKET || !BACKUP_S3_ACCESS_KEY_ID || !BACKUP_S3_SECRET_ACCESS_KEY) {
+    throw new Error("Off-site backup needs BACKUP_S3_ENDPOINT, BACKUP_S3_BUCKET, BACKUP_S3_ACCESS_KEY_ID and BACKUP_S3_SECRET_ACCESS_KEY");
+  }
+  return {
+    endpoint: BACKUP_S3_ENDPOINT,
+    bucket: BACKUP_S3_BUCKET,
+    region: env.BACKUP_S3_REGION || "auto",
+    accessKeyId: BACKUP_S3_ACCESS_KEY_ID,
+    secretAccessKey: BACKUP_S3_SECRET_ACCESS_KEY,
+    prefix: env.BACKUP_S3_PREFIX || "bizhub",
+  };
 }

@@ -238,6 +238,10 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["merchants", "notice_enabled", "INTEGER NOT NULL DEFAULT 0"],
   // Set when a slip image was deleted under the retention policy.
   ["payments", "slip_purged_at", "TEXT"],
+  // The shop's own privacy policy (the shop is the data controller for its customers' slips).
+  ["merchants", "privacy_url", "TEXT"],
+  // When the slip image was copied to off-site backup storage.
+  ["payments", "slip_offsite_at", "TEXT"],
 ];
 
 function migrate(db: Db): void {

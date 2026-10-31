@@ -8,6 +8,7 @@ import { PaymentError, type PaymentService } from "../services/payments.ts";
 import { LoginLimiter } from "../services/sessions.ts";
 import type { SlipService } from "../services/slips.ts";
 import { looksLike, MAX_SLIP_BYTES } from "./checkout.ts";
+import { slipPrivacyNotice } from "./legal.ts";
 
 function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -123,7 +124,7 @@ function renderNoticePage(m: MerchantRow, nonce: string): string {
   button { font:inherit; font-weight:600; padding:12px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
   button:disabled { opacity:.6; cursor:wait; }
   .result { border-radius:10px; padding:14px; } .ok { background:var(--ok-bg); color:var(--ok); } .bad { background:var(--bad-bg); color:var(--bad); } .wait { background:var(--warn-bg); color:var(--warn); }
-  .small { font-size:13px; color:var(--muted); } [hidden] { display:none !important; }
+  .small { font-size:13px; color:var(--muted); } .small a { color:var(--accent); } [hidden] { display:none !important; }
 </style></head>
 <body><main>
   <div class="card"><h2>${esc(m.name)}</h2><h1>แจ้งชำระเงิน</h1>
@@ -135,7 +136,7 @@ function renderNoticePage(m: MerchantRow, nonce: string): string {
     <button type="submit" id="btn">ส่งแจ้งชำระเงิน</button>
     <div id="out" class="result" role="status" hidden></div>
   </form>
-  <p class="small">ข้อมูลในสลิปใช้เพื่อยืนยันการชำระเงินกับ ${esc(m.name)} เท่านั้น</p>
+  <p class="small">${slipPrivacyNotice(m)}</p>
 </main>
 <script nonce="${nonce}">
 (() => {

@@ -10,6 +10,7 @@ import { checkoutRoutes, MAX_SLIP_BYTES } from "./routes/checkout.ts";
 import { adminConsoleRoutes } from "./routes/admin-console.ts";
 import { assetRoutes } from "./routes/assets.ts";
 import { bankNotifyRoutes } from "./routes/bank.ts";
+import { legalRoutes } from "./routes/legal.ts";
 import { noticeRoutes } from "./routes/notice.ts";
 import { BankService } from "./services/bank.ts";
 import { MaintenanceService } from "./services/maintenance.ts";
@@ -85,6 +86,8 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     slipRetentionDays: config.slipRetentionDays ?? 0,
     backupIntervalHours: config.backupIntervalHours ?? 0,
     backupKeep: config.backupKeep ?? 14,
+    offsite: config.offsiteBackup ?? null,
+    fetchImpl,
   });
 
   const app = Fastify({ logger: deps.logger ?? true, bodyLimit: 1024 * 1024, trustProxy: true });
@@ -129,6 +132,10 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     publicBaseUrl: config.publicBaseUrl,
   });
   await app.register(bankNotifyRoutes, { bank });
+  await app.register(legalRoutes, {
+    operatorName: config.operatorName ?? "ผู้ให้บริการระบบ Bizhub",
+    operatorContact: config.operatorContact ?? null,
+  });
   await app.register(noticeRoutes, { merchants, payments, slips, audit, publicBaseUrl: config.publicBaseUrl });
   await app.register(adminConsoleRoutes, {
     db,
@@ -148,9 +155,11 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const runJobs = async () => {
     payments.sweepExpired();
     await slips.retryDue();
-    const m = maintenance.run();
+    const m = await maintenance.run();
     if (m.backup) app.log.info({ file: m.backup }, "database backup written");
     if (m.purged) app.log.info({ count: m.purged }, "old slip images deleted under the retention policy");
+    if (m.uploaded) app.log.info({ count: m.uploaded }, "files copied to off-site backup");
+    if (m.offsiteError) app.log.error({ error: m.offsiteError }, "off-site backup failed; will retry");
     await webhooks.processDue();
   };
 

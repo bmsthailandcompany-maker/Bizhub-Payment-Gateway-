@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { openDb } from "../src/db.ts";
 import { MaintenanceService } from "../src/services/maintenance.ts";
 
-function setup(opts: Partial<{ slipRetentionDays: number; backupIntervalHours: number; backupKeep: number }> = {}) {
+function setup(opts: Partial<ConstructorParameters<typeof MaintenanceService>[1]> = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bizhub-maint-"));
   const db = openDb(dir);
   const slipDir = path.join(dir, "slips");
@@ -25,15 +25,15 @@ function setup(opts: Partial<{ slipRetentionDays: number; backupIntervalHours: n
   return { dir, db, slipDir, svc, add, done: () => fs.rmSync(dir, { recursive: true, force: true }) };
 }
 
-test("backups are consistent copies, run when due, and old ones are pruned", () => {
+test("backups are consistent copies, run when due, and old ones are pruned", async () => {
   const { dir, svc, add, done } = setup();
   add("p1", "succeeded", 1);
-  const first = svc.run().backup!;
+  const first = (await svc.run()).backup!;
   assert.ok(first && fs.existsSync(first));
   const copy = new DatabaseSync(first);
   assert.equal((copy.prepare("SELECT COUNT(*) AS n FROM payments").get() as { n: number }).n, 1);
   copy.close();
-  assert.equal(svc.run().backup, undefined, "not due again within the interval");
+  assert.equal((await svc.run()).backup, undefined, "not due again within the interval");
   for (let i = 0; i < 4; i++) {
     const f = path.join(dir, "backups", `gateway-2020010${i}-000000.db`);
     fs.writeFileSync(f, "old");
@@ -43,12 +43,12 @@ test("backups are consistent copies, run when due, and old ones are pruned", () 
   done();
 });
 
-test("retention deletes slip images of old closed payments only, keeping the bank reference", () => {
+test("retention deletes slip images of old closed payments only, keeping the bank reference", async () => {
   const { db, slipDir, svc, add, done } = setup({ slipRetentionDays: 90, backupIntervalHours: 0 });
   add("old_paid", "succeeded", 120);
   add("old_open", "awaiting_review", 120);
   add("new_paid", "succeeded", 10);
-  assert.deepEqual(svc.run(), { backup: undefined, purged: 1 });
+  assert.deepEqual(await svc.run(), { backup: undefined, purged: 1, uploaded: 0, offsiteError: null });
   assert.ok(!fs.existsSync(path.join(slipDir, "old_paid.png")));
   assert.ok(fs.existsSync(path.join(slipDir, "old_open.png")), "a slip still waiting for review is kept");
   assert.ok(fs.existsSync(path.join(slipDir, "new_paid.png")));
@@ -56,5 +56,29 @@ test("retention deletes slip images of old closed payments only, keeping the ban
   assert.equal(row.slip_path, null);
   assert.equal(row.slip_trans_ref, "TXold_paid");
   assert.ok(row.slip_purged_at);
+  done();
+});
+
+test("backups and new slips are copied off-site; failures are retried next run", async () => {
+  const puts: string[] = [];
+  let fail = true;
+  const fetchImpl = (async (url: URL) => {
+    if (fail) return new Response("SlowDown", { status: 503 });
+    puts.push(new URL(String(url)).pathname);
+    return new Response("", { status: 200 });
+  }) as unknown as typeof fetch;
+  const offsite = { endpoint: "https://s3.example.com", bucket: "bk", region: "auto", accessKeyId: "a", secretAccessKey: "b", prefix: "bizhub" };
+  const { add, svc, done } = setup({ offsite, fetchImpl });
+  add("p1", "succeeded", 1);
+  const first = await svc.run();
+  assert.ok(first.backup);
+  assert.match(first.offsiteError!, /HTTP 503/);
+  fail = false;
+  const second = await svc.run();
+  assert.equal(second.offsiteError, null);
+  assert.equal(second.uploaded, 2);
+  assert.ok(puts.some((p) => /^\/bk\/bizhub\/db\/gateway-\d{8}-\d{6}\.db$/.test(p)));
+  assert.ok(puts.includes("/bk/bizhub/slips/p1.png"));
+  assert.equal((await svc.run()).uploaded, 0, "nothing is uploaded twice");
   done();
 });

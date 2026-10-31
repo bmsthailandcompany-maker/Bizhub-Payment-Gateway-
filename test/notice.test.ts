@@ -94,3 +94,17 @@ test("bad input is refused before spending a slip check, and submissions are rat
   assert.equal((await submit(id, { amount: "100", reference: "Z" }, PNG, "203.0.113.9")).statusCode, 429);
   assert.equal((await submit(id, { amount: "100", reference: "Z" }, PNG, "203.0.113.10")).statusCode, 200, "other visitors are unaffected");
 });
+
+test("slip forms tell customers how their slip data is used and link both privacy policies", async () => {
+  const { id, owner } = await shop();
+  await owner("PATCH", "/notice", { enabled: true });
+  assert.equal((await owner("PATCH", "/privacy", { privacy_url: "javascript:alert(1)" })).statusCode, 400);
+  assert.equal((await owner("PATCH", "/privacy", { privacy_url: "https://shop.example/privacy" })).statusCode, 200);
+  const page = (await gw.app.inject({ method: "GET", url: `/notice/${id}` })).body;
+  assert.match(page, /ชื่อผู้โอน เลขบัญชีบางส่วน/);
+  assert.match(page, /href="https:\/\/shop\.example\/privacy"/);
+  assert.match(page, /href="\/privacy"/);
+  const policy = await gw.app.inject({ method: "GET", url: "/privacy" });
+  assert.equal(policy.statusCode, 200);
+  assert.match(policy.body, /ผู้ควบคุมข้อมูลส่วนบุคคล/);
+});

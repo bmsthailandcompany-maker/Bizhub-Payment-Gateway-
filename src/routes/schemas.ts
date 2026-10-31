@@ -41,6 +41,7 @@ const merchantFields = {
   bank_account_no: z.string().regex(/^[0-9-]{6,20}$/, "invalid account number").nullable().optional(),
   bank_account_name: z.string().max(120).nullable().optional(),
   webhook_url: httpUrl.nullable().optional(),
+  privacy_url: httpUrl.nullable().optional(),
 };
 
 export const createMerchantSchema = z.object(merchantFields);

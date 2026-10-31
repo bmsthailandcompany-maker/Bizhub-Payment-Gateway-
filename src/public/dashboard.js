@@ -360,6 +360,14 @@
         h("dt", {}, "บัญชีธนาคาร"), h("dd", {}, m.bank_account ? [m.bank_account.bank_name, m.bank_account.account_no, m.bank_account.account_name].filter(Boolean).join(" · ") : "ยังไม่ได้ตั้งค่า"),
         h("dt", {}, "รหัสร้าน"), h("dd", { class: "mono" }, m.id)),
         h("p", { class: "small muted" }, "ต้องการแก้ไขข้อมูลรับเงิน กรุณาติดต่อผู้ดูแลเกตเวย์")));
+      const pv = h("input", { type: "text", id: "privacy-url", value: m.privacy_url || "", placeholder: "https://ชื่อบริษัท.com/privacy", disabled: can("users.manage") ? null : true });
+      cards.push(h("div", { class: "card grid" }, h("h2", { class: "m0" }, "ความเป็นส่วนตัว (PDPA)"),
+        h("p", { class: "m0 small muted" }, "ลูกค้าจะเห็นข้อความแจ้งการใช้ข้อมูลในสลิปทุกครั้งที่แนบสลิป พร้อมลิงก์นโยบายของร้าน (ถ้าใส่) และนโยบายของระบบ"),
+        h("label", { class: "f", for: "privacy-url" }, "ลิงก์นโยบายความเป็นส่วนตัวของร้าน", pv),
+        can("users.manage") ? h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: async () => {
+          try { const r = await api("/privacy", { method: "PATCH", body: { privacy_url: pv.value.trim() || null } }); m.privacy_url = r.privacy_url; toast("บันทึกแล้ว"); }
+          catch (ex) { toast(ex.message); }
+        } }, "บันทึก"), h("a", { class: "btn", href: "/privacy", target: "_blank", rel: "noopener" }, "ดูนโยบายของระบบ")) : null));
       const deliveries = h("div", {}, h("p", { class: "muted" }, "กำลังโหลด…"));
       const secret = S.me.webhook_secret
         ? (() => {

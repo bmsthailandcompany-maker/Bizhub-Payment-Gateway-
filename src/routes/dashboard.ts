@@ -397,6 +397,13 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       return r;
     });
 
+    api.patch("/dashboard/api/privacy", { preHandler: need("users.manage") }, async (req) => {
+      const { privacy_url } = z.object({ privacy_url: z.string().url().max(2048).refine((u) => /^https?:\/\//i.test(u)).nullable() }).parse(req.body);
+      merchants.update(req.merchant!.id, { privacy_url });
+      log(req, "merchant.privacy_url", req.merchant!.id, { privacy_url });
+      return { privacy_url };
+    });
+
     // The shop's standing "I have paid" page for customers who transfer by account number.
     api.patch("/dashboard/api/notice", { preHandler: need("bank.manage") }, async (req) => {
       const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);

@@ -1,5 +1,6 @@
 import type { MerchantRow } from "../services/merchants.ts";
 import type { PaymentRow } from "../services/payments.ts";
+import { slipPrivacyNotice } from "./legal.ts";
 
 function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -34,6 +35,7 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
       <input id="slip" name="slip" type="file" accept="image/jpeg,image/png,image/webp,application/pdf" required>
       <button type="submit">ส่งสลิปเพื่อยืนยัน</button>
       <p class="small">ระบบตรวจสอบสลิปกับธนาคารอัตโนมัติภายในไม่กี่วินาที</p>
+      <p class="small privacy">${slipPrivacyNotice(m)}</p>
     </form>`;
 
   let methodSection = "";
@@ -94,7 +96,7 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
   .timer { font-size:14px; color:var(--warn); margin-top:8px; }
   hr { border:0; border-top:1px solid var(--line); margin:20px 0; }
   .qr { display:block; margin:12px auto; background:#fff; padding:10px; border-radius:10px; max-width:100%; height:auto; }
-  .hint { margin:0 0 8px; } .small { font-size:13px; color:var(--muted); text-align:center; }
+  .hint { margin:0 0 8px; } .small { font-size:13px; color:var(--muted); text-align:center; } .privacy { font-size:12px; } .privacy a { color:var(--accent); }
   .card-box { display:flex; flex-direction:column; gap:6px; margin-top:16px; }
   label { font-size:14px; color:var(--muted); }
   input { font:inherit; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); width:100%; }

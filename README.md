@@ -63,7 +63,10 @@ docker compose exec gateway node --import tsx scripts/create-admin.ts --email yo
 
 - **ข้อมูลทั้งหมด** (ฐานข้อมูล, รูปสลิป, ไฟล์สำรอง) อยู่ใน volume `gateway-data` อัปเดตเวอร์ชันด้วย `git pull && docker compose up -d --build` โดยข้อมูลไม่หาย
 - **สำรองข้อมูลอัตโนมัติ** ทุก `BACKUP_INTERVAL_HOURS` ชั่วโมง (ค่าเริ่มต้น 24) ไว้ที่ `/data/backups` เก็บ `BACKUP_KEEP` ไฟล์ล่าสุด
-  ควรคัดลอกไฟล์สำรองออกนอกเครื่องด้วย เช่น snapshot ของดิสก์ หรือ sync ไป object storage
+- **สำรองนอกเครื่อง:** ตั้ง `BACKUP_S3_*` แล้วระบบจะส่งไฟล์สำรองฐานข้อมูลและรูปสลิปใหม่ ๆ ไปเก็บใน bucket แบบ S3
+  (AWS S3, Cloudflare R2, DigitalOcean Spaces, MinIO) ถ้าส่งไม่สำเร็จจะลองใหม่รอบถัดไปและบันทึกใน log
+- **PDPA:** ทุกหน้าที่ลูกค้าแนบสลิปจะแจ้งว่าใช้ข้อมูลอะไร เพื่ออะไร พร้อมลิงก์นโยบายของร้าน (ตั้งใน Dashboard → ตั้งค่า)
+  และหน้านโยบายของระบบที่ `/privacy` (ตั้งชื่อผู้ให้บริการด้วย `OPERATOR_NAME`, `OPERATOR_CONTACT`)
 - **ระยะเวลาเก็บสลิป (PDPA):** ตั้ง `SLIP_RETENTION_DAYS` เพื่อลบรูปสลิปของรายการที่ปิดแล้วเมื่อเกินกำหนด เลขอ้างอิงธนาคารยังเก็บไว้ จึงยังกันสลิปซ้ำได้
   ค่าเริ่มต้นคือ 0 (เก็บไว้ตลอด) ให้กำหนดร่วมกับฝ่ายบัญชีว่าต้องเก็บหลักฐานนานเท่าไร
 
@@ -326,7 +329,9 @@ src/
   slip/                  ตัวเชื่อม EasySlip / SlipOK + กฎตรวจสลิป
   auth/                  รหัสผ่าน (scrypt) + บทบาทและสิทธิ์
   services/bank.ts       เชื่อมบัญชีธนาคาร + จับคู่แจ้งเตือนเงินเข้า
-  services/maintenance.ts สำรองฐานข้อมูลอัตโนมัติ + ลบสลิปเก่าตามระยะเวลาที่ตั้ง
+  services/maintenance.ts สำรองฐานข้อมูลอัตโนมัติ + ส่งขึ้น S3 + ลบสลิปเก่าตามระยะเวลาที่ตั้ง
+  services/s3.ts         ตัวอัปโหลดไป storage แบบ S3 (AWS SigV4)
+  routes/legal.ts        ข้อความ PDPA บนหน้าแนบสลิป + หน้านโยบาย /privacy
   routes/notice.ts       หน้าแจ้งชำระเงินของร้าน (ลูกค้าที่โอนเข้าเลขบัญชี)
   services/users.ts      บัญชีพนักงาน/แอดมิน · sessions.ts · audit.ts · export.ts (CSV/XLSX)
   routes/                merchant API, admin API, checkout, dashboard, admin-console

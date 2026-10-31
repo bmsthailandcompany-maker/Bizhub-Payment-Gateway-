@@ -10,6 +10,7 @@ export interface MerchantRow {
   bank_account_no: string | null;
   bank_account_name: string | null;
   webhook_url: string | null;
+  privacy_url: string | null;
   webhook_secret: string;
   active: number;
   require_2fa: number;
@@ -24,6 +25,7 @@ export interface MerchantInput {
   bank_account_no?: string | null;
   bank_account_name?: string | null;
   webhook_url?: string | null;
+  privacy_url?: string | null;
 }
 
 export interface IssuedKeys {
@@ -41,6 +43,7 @@ export function serializeMerchant(m: MerchantRow) {
       ? { bank_name: m.bank_name, account_no: m.bank_account_no, account_name: m.bank_account_name }
       : null,
     webhook_url: m.webhook_url,
+    privacy_url: m.privacy_url,
     active: m.active === 1,
     require_2fa: m.require_2fa === 1,
     notice_enabled: m.notice_enabled === 1,
@@ -98,7 +101,7 @@ export class MerchantService {
     };
     this.db
       .prepare(
-        `UPDATE merchants SET name=?, promptpay_id=?, bank_name=?, bank_account_no=?, bank_account_name=?, webhook_url=?, active=?, require_2fa=?, notice_enabled=? WHERE id=?`,
+        `UPDATE merchants SET name=?, promptpay_id=?, bank_name=?, bank_account_no=?, bank_account_name=?, webhook_url=?, privacy_url=?, active=?, require_2fa=?, notice_enabled=? WHERE id=?`,
       )
       .run(
         next.name,
@@ -107,6 +110,7 @@ export class MerchantService {
         next.bank_account_no ?? null,
         next.bank_account_name ?? null,
         next.webhook_url ?? null,
+        next.privacy_url ?? null,
         next.active,
         next.require_2fa,
         next.notice_enabled,
