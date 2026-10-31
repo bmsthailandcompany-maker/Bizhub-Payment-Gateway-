@@ -107,6 +107,26 @@
         can("payments.view")?shortcut("▤","รายการชำระเงิน",()=>go("payments")):null,
         can("settings.view")?shortcut("▣","บัญชีธนาคาร",()=>go("bank")):null,
         can("payments.export")?shortcut("↧","ส่งออกรายงาน",()=>UI.exportDialog(api,"/payments/export")):null));
+    const paid = recent.data.filter(p => p.status === "succeeded");
+    const methodCounts = { promptpay:0, card:0, bank_transfer:0 };
+    for (const p of paid) if (Object.prototype.hasOwnProperty.call(methodCounts,p.method)) methodCounts[p.method]++;
+    const methodTotal = Object.values(methodCounts).reduce((a,b)=>a+b,0);
+    const methodPercent = key => methodTotal ? Math.round(methodCounts[key]*100/methodTotal) : 0;
+    const methods = [["promptpay","PromptPay"],["card","บัตรเครดิต / เดบิต"],["bank_transfer","โอนเงินผ่านธนาคาร"]];
+    const breakdown = h("div",{class:"card merchant-breakdown"},
+      h("h2",{},"สัดส่วนช่องทางชำระเงิน (รายการล่าสุด)"),
+      h("div",{class:"merchant-breakdown-body"},
+        h("div",{class:"merchant-donut",role:"img","aria-label":"สัดส่วนการชำระเงินจากรายการสำเร็จล่าสุด"},
+          h("div",{class:"merchant-donut-inner"},h("strong",{},String(methodTotal)),h("span",{},"รายการสำเร็จ"))),
+        h("div",{class:"merchant-legend"},methods.map(([key,label])=>
+          h("div",{class:"merchant-legend-row"},
+            h("span",{class:"merchant-legend-dot "+key}),h("span",{},label),
+            h("strong",{},methodPercent(key)+"%"))))));
+    const donut = breakdown.querySelector(".merchant-donut");
+    const p1 = methodPercent("promptpay"), p2 = methodPercent("card");
+    donut.style.background = methodTotal
+      ? `conic-gradient(#0876f4 0% ${p1}%,#ff970f ${p1}% ${p1+p2}%,#20c879 ${p1+p2}% 100%)`
+      : "conic-gradient(#dce7f5 0% 100%)";
     main.replaceChildren(
       h("div",{class:"page-head merchant-welcome"},
         h("div",{},h("h1",{},"ภาพรวมธุรกิจ"),h("p",{class:"muted m0"},"จัดการรับชำระเงินและติดตามยอดขายของ "+S.me.merchant.name)),
@@ -127,8 +147,8 @@
       h("div",{class:"merchant-overview-row"},
         h("div",{class:"card merchant-recent"},h("div",{class:"row"},h("h2",{},"รายการธุรกรรมล่าสุด"),h("span",{class:"spacer"}),h("button",{class:"link",type:"button",onclick:()=>go("payments")},"ดูทั้งหมด →")),
           recent.data.length?UI.paymentTable(recent.data,{onOpen:openPayment}):h("div",{class:"empty"},"ยังไม่มีรายการชำระเงิน")),
-        h("div",{class:"card merchant-recent"},h("h2",{},"รายการที่รอตรวจสอบ"),
-          review.data.length?UI.paymentTable(review.data,{onOpen:openPayment}):h("div",{class:"empty"},"ไม่มีรายการที่ต้องตรวจสอบ ✓"))));
+        breakdown),
+      review.data.length ? h("div",{class:"card merchant-recent"},h("h2",{},"รายการที่รอตรวจสอบ"),UI.paymentTable(review.data,{onOpen:openPayment})) : null);
   }
 
   // ---------- payments ----------
