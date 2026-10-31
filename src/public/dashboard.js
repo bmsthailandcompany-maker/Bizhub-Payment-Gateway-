@@ -295,6 +295,22 @@
     const c = res.connection;
     const manage = can("bank.manage");
     const cards = [noticeCard()];
+    const integrationBox = h("div",{class:"card grid"},
+      h("h2",{class:"m0"},"เชื่อมต่อรับชำระอัตโนมัติ (Phase 2)"),
+      h("p",{class:"small muted"},"เงินเข้าบัญชีร้านโดยตรง • ไม่ต้องแนบสลิป เมื่อได้รับการยืนยันธุรกรรมจากผู้ให้บริการที่เชื่อมต่อแล้ว"),
+      h("p",{class:"small"},"กำลังตรวจสอบความพร้อม…"));
+    api("/payment-integration").then((info)=>{
+      integrationBox.replaceChildren(
+        h("h2",{class:"m0"},"เชื่อมต่อรับชำระอัตโนมัติ (Phase 2)"),
+        h("p",{class:"small"},"รูปแบบรับเงิน: เข้าบัญชีร้านค้าโดยตรง"),
+        h("p",{class:"small"},"ยืนยันตัวตนร้าน: "+({approved:"ผ่านแล้ว",submitted:"รอตรวจสอบ",draft:"ยังไม่ส่งเอกสาร",rejected:"ต้องแก้ไขเอกสาร"}[info.kyc_status]||"รอตรวจสอบ")),
+        h("p",{class:"small"},"ตัวเชื่อมต่อโหมดทดสอบ: "+(info.test_connector_configured?"ตั้งค่าแล้ว":"ยังไม่ตั้งค่า")),
+        h("p",{class:"small"},"ตัวเชื่อมต่อโหมดจริง: "+(info.live_connector_configured?"ตั้งค่าแล้ว (ยังต้องยืนยันการเปิดใช้กับผู้ให้บริการ)":"ยังไม่ตั้งค่า")),
+        h("div",{class:"notice small"},"การตั้งค่า Webhook ไม่ใช่หลักฐานว่าธนาคารหรือ Payment Provider เปิดใช้งานแล้ว ต้องทดสอบการแจ้งเงินเข้าจริงก่อนเปิด Auto Verification"),
+        h("p",{class:"small muted"},"รองรับการต่อยอด KBank / SCB / Payment Provider ผ่านสัญญาแจ้งธุรกรรมที่ตรวจสอบลายเซ็นและรหัสอ้างอิงได้"));
+    }).catch(()=>integrationBox.replaceChildren(h("p",{class:"error"},"ไม่สามารถตรวจสอบสถานะการเชื่อมต่อได้")));
+
+    cards.push(integrationBox);
     if (!c) {
       cards.push(h("div", { class: "card grid" },
         h("h2", { class: "m0" }, "ยืนยันเงินเข้าอัตโนมัติ ไม่ต้องรอสลิป"),
