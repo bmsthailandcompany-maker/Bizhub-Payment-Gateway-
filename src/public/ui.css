@@ -531,3 +531,15 @@ header.top .bar { align-items:center; }
  header.top nav.tabs .nav-logout { margin-top:auto;border-top:1px solid #ffffff33; }
 }
 header.top nav.tabs .nav-logout { color:#fff;font-weight:750; }
+
+/* Softer premium header: curved light washes replace rigid diagonal stripes. */
+@media(max-width:1079px) {
+ header.top {
+  background:
+   radial-gradient(ellipse 75% 115% at -8% 110%,rgba(45,158,238,.29) 0%,rgba(98,192,250,.15) 45%,transparent 71%),
+   radial-gradient(ellipse 58% 95% at 110% 0%,rgba(48,164,239,.30) 0%,rgba(102,196,250,.12) 53%,transparent 83%),
+   radial-gradient(ellipse 62% 46% at 50% 118%,rgba(255,255,255,.96) 0%,rgba(231,248,255,.35) 67%,transparent 100%),
+   linear-gradient(112deg,#f8fdff 0%,#eefaff 48%,#d7f0ff 100%)!important;
+  border-bottom:4px solid #ff8a0a!important;
+ }
+}
