@@ -614,3 +614,14 @@ header.top nav.tabs .nav-logout { color:#fff;font-weight:750; }
 .merchant-kpis .tile:not(:first-child) {background:linear-gradient(145deg,#fff 55%,#eff8ff);}
 .merchant-kpis .tile .label,.merchant-kpis .tile .value,.merchant-kpis .tile .sub {position:relative;z-index:1;}
 @media(max-width:650px) {.merchant-kpis .tile {padding:15px 47px 15px 14px;min-height:140px;}.merchant-kpis .tile::after {width:39px;height:39px;right:5px;}}
+
+/* KPI polish v2: depth, subtle illuminated accents; no layout or data changes. */
+.merchant-kpis .tile {box-shadow:0 8px 24px rgba(7,65,143,.12),inset 0 1px 0 #ffffff85;transition:box-shadow .2s ease;}
+.merchant-kpis .tile:first-child {background:radial-gradient(ellipse 70% 65% at 82% 95%,#09bbff9c,transparent 80%),linear-gradient(130deg,#065ccf 0%,#062e91 58%,#0075e1 100%);}
+.merchant-kpis .tile:first-child::before {background:linear-gradient(24deg,#008ce9aa,#00c9ff66 35%,#ff9b1238 68%,transparent 85%);bottom:-92%;transform:rotate(-15deg);}
+.merchant-kpis .tile:first-child::after {filter:drop-shadow(0 0 7px #a9eeffb0);}
+.merchant-kpis .tile:nth-child(2)::after {width:76px;height:76px;}
+.merchant-kpis .tile:nth-child(3) {box-shadow:0 8px 24px #ff9b1014,inset 0 0 0 1px #ffad2340;}
+.merchant-kpis .tile:nth-child(3)::after {filter:drop-shadow(0 3px 5px #ff950040);}
+.merchant-kpis .tile:nth-child(4)::after {filter:drop-shadow(-4px 3px 5px #00a2e833);}
+@media(max-width:650px) {.merchant-kpis .tile:nth-child(2)::after {width:44px;height:44px;}}
