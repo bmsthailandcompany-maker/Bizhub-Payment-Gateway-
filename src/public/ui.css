@@ -600,3 +600,17 @@ header.top nav.tabs .nav-logout { color:#fff;font-weight:750; }
 .merchant-welcome h1::before {content:"↗";display:inline-block;margin-right:9px;color:#ff8b0b;font-weight:900;}
 .merchant-quick,.merchant-recent,.merchant-breakdown {box-shadow:0 9px 24px #0b4d9416;}
 @media(max-width:650px) {.merchant-kpis .tile {padding-right:39px;}.merchant-kpis .tile::after {font-size:29px;right:9px;}.merchant-kpis .tile:nth-child(3)::after,.merchant-kpis .tile:nth-child(4)::after {font-size:34px;}}
+
+/* KPI visual master: actual vector assets, not placeholder glyphs. */
+.merchant-kpis .tile {position:relative;isolation:isolate;overflow:hidden;padding-right:78px;min-height:160px;}
+.merchant-kpis .tile::after {content:""!important;display:block;position:absolute;right:12px;top:50%;width:70px;height:70px;transform:translateY(-50%);opacity:1;background:transparent center/contain no-repeat;pointer-events:none;text-shadow:none!important;}
+.merchant-kpis .tile:nth-child(1)::after {background-image:url('/assets/bizhubpay-kpi-today.svg');}
+.merchant-kpis .tile:nth-child(2)::after {background-image:url('/assets/bizhubpay-kpi-period.svg');}
+.merchant-kpis .tile:nth-child(3)::after {background-image:url('/assets/bizhubpay-kpi-review.svg');}
+.merchant-kpis .tile:nth-child(4)::after {background-image:url('/assets/bizhubpay-kpi-pending.svg');}
+.merchant-kpis .tile:first-child {background:linear-gradient(128deg,#0753c4,#05318b 57%,#008df3);border:1px solid #168ef3;}
+.merchant-kpis .tile:first-child::before {content:"";position:absolute;bottom:-80%;left:4%;width:125%;height:130%;border-radius:50%;background:linear-gradient(28deg,#0089ec66,#14d6ff55,#ff9d1344);z-index:-1;}
+.merchant-kpis .tile:nth-child(3) {border:1px solid #ff920b;}
+.merchant-kpis .tile:not(:first-child) {background:linear-gradient(145deg,#fff 55%,#eff8ff);}
+.merchant-kpis .tile .label,.merchant-kpis .tile .value,.merchant-kpis .tile .sub {position:relative;z-index:1;}
+@media(max-width:650px) {.merchant-kpis .tile {padding:15px 47px 15px 14px;min-height:140px;}.merchant-kpis .tile::after {width:39px;height:39px;right:5px;}}
