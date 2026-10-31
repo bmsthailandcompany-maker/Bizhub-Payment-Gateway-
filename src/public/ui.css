@@ -308,3 +308,32 @@ input,select,textarea { color:#092654; }
  :root:not([data-theme="light"]) table.list td { color:#f3f7ff; }
  :root:not([data-theme="light"]) table.list th { background:#1c3560;color:#dceaff; }
 }
+
+/* V2.1 screenshot fixes: legible logo, responsive navigation and header. */
+header.top .brand,header.top .brand.admin {
+  width:230px;min-width:230px;height:68px;
+  background-color:#fff;background-origin:content-box;background-clip:content-box;
+  border-radius:14px;padding:7px 10px;
+  box-shadow:0 3px 12px #00143830;
+  filter:none;
+}
+header.top .bar { align-items:center; }
+@media(max-width:1079px) {
+ header.top .bar { display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 12px; }
+ header.top .brand,header.top .brand.admin { width:175px;min-width:0;height:59px;grid-column:1; }
+ header.top .shop { grid-column:1;grid-row:2;font-weight:650;color:#fff; }
+ header.top .spacer { display:none; }
+ header.top .mode-switch,header.top .pill { justify-self:end; }
+ header.top .who { display:none; }
+ header.top .bar > .btn { grid-column:2;justify-self:end; }
+ header.top nav.tabs { display:flex;flex-wrap:nowrap;overflow-x:auto;scroll-snap-type:x proximity;padding:4px 12px 8px;gap:8px; }
+ header.top nav.tabs button { flex:0 0 auto;white-space:nowrap;scroll-snap-align:start;min-height:43px;font-size:14px;padding:9px 12px; }
+}
+@media(max-width:520px) {
+ header.top .bar { grid-template-columns:1fr auto; }
+ header.top .brand,header.top .brand.admin { width:158px;height:56px;padding:6px; }
+ header.top .shop { font-size:13px; }
+ header.top .mode-switch button { padding:6px 7px;font-size:12px; }
+ header.top .bar > .btn { padding:7px 9px;font-size:12px; }
+ .tiles { gap:10px; }
+}
