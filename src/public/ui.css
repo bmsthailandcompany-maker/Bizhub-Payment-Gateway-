@@ -639,3 +639,9 @@ header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {b
  header.top nav.tabs {padding-top:55px!important;}
  header.top nav.tabs .nav-brand-wordmark {padding-top:0!important;padding-bottom:12px!important;margin-bottom:6px!important;}
 }
+
+/* Drawer refinement: shift wordmark/navigation another 20% upward. */
+@media(max-width:1079px) {
+ header.top nav.tabs {padding-top:44px!important;}
+ header.top nav.tabs .nav-brand-wordmark {padding-bottom:10px!important;margin-bottom:4px!important;}
+}
