@@ -48,6 +48,7 @@
       tabs: TABS.filter((t) => (!t.perm || can(t.perm)) && (!t.when || t.when())).map((t) => ({ ...t, badge: t.id === "payments" && review ? review : null })),
       current: S.tab,
       onTab: go,
+      onProfile: () => go("settings"),
       onLogout: async () => { await api("/logout", { method: "POST" }).catch(() => {}); showLogin(); },
     });
   }
@@ -495,6 +496,24 @@
           UI.changePasswordView(root, { api, forced: false, onDone: () => go("settings") });
         } }, "เปลี่ยนรหัสผ่าน")) : null),
     ];
+    if (S.me.user.kind === "merchant_user") {
+      const nameInput = h("input", {type:"text",value:S.me.user.name,required:true,maxlength:120,autocomplete:"name"});
+      const form = h("form",{class:"card grid",onsubmit:async(e)=>{
+        e.preventDefault();
+        const name = nameInput.value.trim();
+        if (!name) { toast("กรุณากรอกชื่อผู้ใช้"); return; }
+        try {
+          const result = await api("/profile",{method:"PATCH",body:{name}});
+          S.me.user.name = result.name;
+          toast("บันทึกโปรไฟล์แล้ว");
+          go("settings");
+        } catch (ex) { toast(ex.message); }
+      }},h("h2",{},"แก้ไขโปรไฟล์ส่วนตัว"),
+        h("label",{class:"f"},"ชื่อที่แสดง",nameInput),
+        h("p",{class:"small muted"},"ชื่อที่แสดงในมุมขวาบนของระบบ"),
+        h("button",{class:"btn primary",type:"submit"},"บันทึกชื่อ"));
+      cards.push(form);
+    }
     if (S.me.user.kind === "merchant_user") {
       const mfaBox = h("div");
       cards.push(mfaBox);
