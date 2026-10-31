@@ -12,7 +12,7 @@
   function showLogin() {
     S.me = null;
     UI.loginView(root, {
-      title: "Bizhub Dashboard",
+      title: "BIZHUB PAY Merchant Portal",
       subtitle: "เข้าสู่ระบบด้วยบัญชีพนักงานของร้าน",
       altLabel: "เข้าด้วย Secret key (เจ้าของร้าน)",
       altField: { name: "secret_key", label: "Secret key", placeholder: "sk_live_... หรือ sk_test_...", hint: "ใช้ sk_test_ เพื่อดูข้อมูลทดสอบ หรือ sk_live_ เพื่อดูข้อมูลจริง ระบบไม่เก็บ key ไว้ในเบราว์เซอร์" },
@@ -88,29 +88,42 @@
 
   // ---------- overview ----------
   async function viewOverview() {
-    main.replaceChildren(h("h1", {}, "ภาพรวม"), h("p", { class: "muted" }, "กำลังโหลด…"));
-    const [summary, review] = await Promise.all([api("/summary"), api("/payments?status=awaiting_review&limit=5")]);
+    main.replaceChildren(h("h1", {}, "ภาพรวมธุรกิจ"), h("p", { class:"muted" }, "กำลังโหลดข้อมูลธุรกรรม…"));
+    const [summary, review, recent] = await Promise.all([
+      api("/summary"), api("/payments?status=awaiting_review&limit=5"), api("/payments?limit=5")
+    ]);
     const changed = S.summary?.awaiting_review !== summary.awaiting_review;
     S.summary = summary;
     if (changed) renderShell();
-    const tile = (label, value, sub, extra = {}) => h("div", { class: "card tile" + (extra.attn ? " attn" : "") },
-      h("div", { class: "label" }, label), h("div", { class: "value" }, value), sub ? h("div", { class: "sub" }, sub) : null, extra.action || null);
+    const tile = (label, value, sub, extra={}) => h("div", {class:"card tile"+(extra.attn?" attn":"")},
+      h("div",{class:"label"},label),h("div",{class:"value"},value),
+      sub?h("div",{class:"sub"},sub):null,extra.action||null);
+    const shortcut = (symbol,label,action) => h("button",{type:"button",class:"merchant-shortcut",onclick:action},
+      h("span",{class:"shortcut-symbol","aria-hidden":"true"},symbol),h("strong",{},label));
+    const quick = h("div",{class:"card merchant-quick"},
+      h("h2",{},"⚡ ทำรายการด่วน"),
+      h("div",{class:"merchant-quick-grid"},
+        can("payments.create")?shortcut("▦","สร้าง QR / ลิงก์รับเงิน",()=>go("create")):null,
+        can("payments.view")?shortcut("▤","รายการชำระเงิน",()=>go("payments")):null,
+        can("settings.view")?shortcut("▣","บัญชีธนาคาร",()=>go("bank")):null,
+        can("payments.export")?shortcut("↧","ส่งออกรายงาน",()=>UI.exportDialog(api,"/payments/export")):null));
     main.replaceChildren(
-      h("div", { class: "page-head" }, h("h1", {}, "ภาพรวม"),
-        can("payments.export") ? h("button", { class: "btn", type: "button", onclick: () => UI.exportDialog(api, "/payments/export") }, "ส่งออก Excel/CSV") : null),
-      h("div", { class: "grid" },
-        kycBanner(),
-        h("div", { class: "grid tiles" },
-          tile("ยอดขายวันนี้", baht(summary.today.amount), summary.today.count + " รายการ"),
-          tile(`ยอดขาย ${summary.period.days} วัน`, baht(summary.period.amount), summary.period.count + " รายการ"),
-          tile("รอตรวจสอบ", String(summary.awaiting_review), "สลิปที่ระบบตัดสินเองไม่ได้", {
-            attn: summary.awaiting_review > 0,
-            action: summary.awaiting_review > 0 ? h("button", { class: "link", type: "button", onclick: () => { S.filter = "awaiting_review"; go("payments"); } }, "ไปตรวจสอบ →") : null,
-          }),
-          tile("รอชำระ", String(summary.pending), "ลูกค้ายังไม่จ่าย")),
-        UI.salesChart(summary.daily, "ยอดขายรายวัน (ชำระสำเร็จ)"),
-        h("div", { class: "card" }, h("h2", {}, "รอตรวจสอบล่าสุด"),
-          review.data.length ? UI.paymentTable(review.data, { onOpen: openPayment }) : h("div", { class: "empty" }, "ไม่มีรายการที่ต้องตรวจสอบ ✓"))));
+      h("div",{class:"page-head merchant-welcome"},
+        h("div",{},h("h1",{},"ภาพรวมธุรกิจ"),h("p",{class:"muted m0"},"จัดการรับชำระเงินและติดตามยอดขายของ "+S.me.merchant.name)),
+        can("payments.export")?h("button",{class:"btn",type:"button",onclick:()=>UI.exportDialog(api,"/payments/export")},"ส่งออก Excel/CSV"):null),
+      kycBanner(),
+      h("div",{class:"grid tiles merchant-kpis"},
+        tile("ยอดรับชำระวันนี้",baht(summary.today.amount),summary.today.count+" รายการ"),
+        tile("ยอดรับชำระ "+summary.period.days+" วัน",baht(summary.period.amount),summary.period.count+" รายการ"),
+        tile("รอตรวจสอบ",String(summary.awaiting_review),"สลิปที่ต้องตรวจด้วยตนเอง",{attn:summary.awaiting_review>0,
+          action:summary.awaiting_review>0?h("button",{class:"link",type:"button",onclick:()=>{S.filter="awaiting_review";go("payments");}},"ไปตรวจสอบ →"):null}),
+        tile("รอชำระ",String(summary.pending),"รายการที่ยังไม่ชำระ")),
+      h("div",{class:"merchant-overview-row"},UI.salesChart(summary.daily,"ยอดรับชำระรายวัน (สำเร็จ)"),quick),
+      h("div",{class:"merchant-overview-row"},
+        h("div",{class:"card merchant-recent"},h("div",{class:"row"},h("h2",{},"รายการธุรกรรมล่าสุด"),h("span",{class:"spacer"}),h("button",{class:"link",type:"button",onclick:()=>go("payments")},"ดูทั้งหมด →")),
+          recent.data.length?UI.paymentTable(recent.data,{onOpen:openPayment}):h("div",{class:"empty"},"ยังไม่มีรายการชำระเงิน")),
+        h("div",{class:"card merchant-recent"},h("h2",{},"รายการที่รอตรวจสอบ"),
+          review.data.length?UI.paymentTable(review.data,{onOpen:openPayment}):h("div",{class:"empty"},"ไม่มีรายการที่ต้องตรวจสอบ ✓"))));
   }
 
   // ---------- payments ----------
