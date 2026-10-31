@@ -472,7 +472,30 @@
       h("h2",{class:"m0"},"Omise / Opn Payments"),
       h("p",{class:"small muted"},"การตั้งค่า API ส่วนกลางของ BIZHUB PAY • ไม่เปิดเผย Secret Key • ยังไม่เปิดรับเงินจริง"),
       status,check,
-      h("div",{class:"notice small"},"การทดสอบนี้ตรวจสอบ API Key เท่านั้น ไม่ใช่การยืนยันการรับเงินเข้าบัญชีของร้านค้าแต่ละราย")));
+      h("div",{class:"notice small"},"การทดสอบนี้ตรวจสอบ API Key เท่านั้น ไม่ใช่การยืนยันการรับเงินเข้าบัญชีของร้านค้าแต่ละราย"),
+      (() => {
+        const output=h("div",{class:"grid"});
+        const create=h("button",{class:"btn primary",type:"button",onclick:async()=>{
+          if(!confirm("สร้างรายการ PromptPay จำลอง 20 บาทใน Omise Sandbox เท่านั้น (ไม่มีเงินจริง) ใช่หรือไม่?"))return;
+          create.disabled=true;output.replaceChildren(h("p",{},"กำลังสร้างรายการทดสอบ…"));
+          try{
+            const p=await api("/providers/omise/promptpay-test",{method:"POST",body:{confirm:true}});
+            const status=h("p",{},"สถานะ: "+p.status);
+            const refresh=h("button",{class:"btn",type:"button",onclick:async()=>{
+              try{const s=await api("/providers/omise/charges/"+encodeURIComponent(p.id));status.textContent="สถานะล่าสุด: "+s.status;}
+              catch(e){toast(e.message);}
+            }},"ตรวจสอบสถานะจาก Omise");
+            output.replaceChildren(h("p",{},"รายการทดสอบ 20.00 บาท • ไม่มีเงินจริง"),
+              h("p",{class:"mono small"},"Transaction ID: "+p.id),
+              status,
+              p.qr_url?h("a",{href:p.qr_url,target:"_blank",rel:"noopener noreferrer"},"เปิดภาพ QR ทดสอบจาก Omise (ห้ามสแกนโอนเงินจริง)"):h("p",{class:"notice small"},"Omise ยังไม่ส่ง QR Image URL"),
+              refresh,
+              h("p",{class:"small muted"},"จำลองสถานะสำเร็จ/ล้มเหลวใน Omise Dashboard แล้วกดตรวจสอบสถานะอีกครั้ง"));
+          }catch(e){output.replaceChildren(h("p",{class:"error"},e.message));}
+          finally{create.disabled=false;}
+        }},"สร้าง QR PromptPay ทดสอบ ฿20");
+        return h("div",{class:"grid"},h("h2",{},"PromptPay Sandbox"),create,output);
+      })()));
   }
 
   function viewAccount() {
