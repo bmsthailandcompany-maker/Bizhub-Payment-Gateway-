@@ -329,7 +329,7 @@
   function changePasswordView(root, { api, forced, onDone }) {
     const err = h("p", { class: "error", role: "alert" });
     const cur = h("input", { type: "password", autocomplete: "current-password", required: true });
-    const next = h("input", { type: "password", autocomplete: "new-password", required: true });
+    const next = h("input", { type: "password", autocomplete: "new-password", minlength: 6, required: true });
     const again = h("input", { type: "password", autocomplete: "new-password", required: true });
     const btn = h("button", { class: "btn primary", type: "submit" }, "บันทึกรหัสผ่านใหม่");
     const form = h("form", { class: "card login", onsubmit: async (e) => {
@@ -342,7 +342,7 @@
       h("h1", { class: "m0" }, forced ? "ตั้งรหัสผ่านใหม่" : "เปลี่ยนรหัสผ่าน"),
       forced ? h("p", {}, "นี่เป็นการเข้าใช้ครั้งแรกด้วยรหัสผ่านชั่วคราว กรุณาตั้งรหัสผ่านของคุณเองก่อนใช้งาน") : null,
       h("label", { class: "f" }, forced ? "รหัสผ่านชั่วคราว" : "รหัสผ่านปัจจุบัน", cur),
-      h("label", { class: "f" }, "รหัสผ่านใหม่", next, h("span", { class: "small muted" }, "อย่างน้อย 10 ตัวอักษร มีทั้งตัวอักษรและตัวเลข")),
+      h("label", { class: "f" }, "รหัสผ่านใหม่", next, h("span", { class: "small muted" }, "อย่างน้อย 6 ตัวอักษร")),
       h("label", { class: "f" }, "ยืนยันรหัสผ่านใหม่", again),
       err, h("div", { class: "row" }, btn));
     root.replaceChildren(h("div", { class: "wrap" }, form));
