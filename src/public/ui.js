@@ -196,7 +196,7 @@
     const err = h("p",{class:"error",role:"alert"});
     const email = h("input",{type:"email",id:"email",autocomplete:"username",required:true,placeholder:"อีเมลผู้ใช้งาน"});
     const pw = h("input",{type:"password",id:"password",autocomplete:"current-password",required:true,placeholder:"รหัสผ่าน"});
-    const btn = h("button",{class:"btn primary login-submit",type:"submit"},"เข้าสู่ระบบ");
+    const btn = h("button",{class:"btn primary login-submit",type:"submit"}, h("span",{class:"login-submit-icon","aria-hidden":"true"},"➜"),h("span",{},"เข้าสู่ระบบ"));
     const form = h("form",{class:"card login unified-login",onsubmit:async(e)=>{
       e.preventDefault();err.textContent="";btn.disabled=true;
       try {await onSubmit({email:email.value.trim(),password:pw.value});}
