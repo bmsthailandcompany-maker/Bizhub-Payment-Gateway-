@@ -375,3 +375,5 @@ header.top .bar { align-items:center; }
  header.top .bar { padding:8px 12px; }
  main.wrap { padding:15px 12px 40px; }
 }
+
+@media(max-width:1079px) { header.top.menu-open { z-index:110; } header.top.menu-open nav.tabs { z-index:111; } }
