@@ -705,3 +705,25 @@ header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {b
  background-size:cover,cover!important;
  background-repeat:no-repeat,no-repeat!important;
 }
+
+/* Approved login polish: 15% larger card/logo, glossy centered sign-in CTA. */
+.login-scene .login-shell {width:min(100%,428px)!important;max-width:428px!important;}
+.login-scene .login-brand {width:219px!important;height:138px!important;}
+.login-scene .unified-login {padding:28px 25px!important;gap:14px!important;}
+.login-scene .login-submit {
+ display:flex!important;align-items:center!important;justify-content:center!important;gap:13px!important;
+ width:100%!important;min-height:55px!important;border:1px solid #2bd5ff!important;border-radius:18px!important;
+ background:linear-gradient(180deg,#08c9fc 0%,#007de9 46%,#0040b7 100%)!important;
+ box-shadow:inset 0 2px 1px #ffffffaa,0 9px 19px #0058b05c!important;
+ color:#fff!important;font-size:19px!important;font-weight:800!important;text-align:center!important;
+ text-shadow:0 1px 2px #00377a80;
+}
+.login-scene .login-submit-icon {display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:2px solid #fff;border-radius:6px;font-size:23px;font-weight:900;line-height:1;}
+.login-scene .login-submit:hover {filter:brightness(1.07);}
+.login-scene .login-submit:focus-visible {outline:3px solid #ff9d18;outline-offset:3px;}
+@media(max-width:520px) {
+ .login-scene .login-shell {width:min(100%,428px)!important;}
+ .login-scene .login-brand {width:190px!important;height:120px!important;}
+ .login-scene .unified-login {padding:24px 20px!important;}
+ .login-scene .login-submit {min-height:52px!important;font-size:18px!important;}
+}
