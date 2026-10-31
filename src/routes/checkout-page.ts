@@ -84,23 +84,23 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ชำระเงิน · ${esc(m.name)}</title>
 <style nonce="${nonce}">
-  :root { --bg:#f5f6f8; --fg:#1d2330; --muted:#667085; --card:#fff; --line:#e4e7ec; --accent:#1a56db; --ok:#067647; --bad:#b42318; --warn:#b54708; }
+  :root { --bg:#eff6ff; --fg:#092752; --muted:#61748e; --card:#fff; --line:#dce8f6; --accent:#075dcc; --ok:#067647; --bad:#b42318; --warn:#b54708; }
   @media (prefers-color-scheme: dark) { :root { --bg:#0f1218; --fg:#e8eaf0; --muted:#98a2b3; --card:#181c24; --line:#2a303c; --accent:#6b9bff; --ok:#47cd89; --bad:#f97066; --warn:#fdb022; } }
   * { box-sizing:border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.5 system-ui, "Noto Sans Thai", sans-serif; }
-  main { max-width:440px; margin:24px auto; padding:0 16px; }
-  .panel { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:24px; }
+  body { margin:0; background:linear-gradient(150deg,#e8f4ff,#f8fbff); color:var(--fg); font:16px/1.5 system-ui, "Noto Sans Thai", sans-serif; }
+  main { max-width:490px; margin:30px auto; padding:0 16px; }
+  .panel { background:var(--card); border:1px solid var(--line); border-radius:22px; padding:26px; box-shadow:0 18px 50px #0b397a16; }
   .merchant { color:var(--muted); font-size:14px; margin:0; }
-  .amount { font-size:34px; font-weight:700; margin:4px 0 0; }
+  .amount { font-size:38px; font-weight:800; color:#074aa9; margin:4px 0 0; }
   .desc { color:var(--muted); margin:4px 0 0; }
   .timer { font-size:14px; color:var(--warn); margin-top:8px; }
   hr { border:0; border-top:1px solid var(--line); margin:20px 0; }
-  .qr { display:block; margin:12px auto; background:#fff; padding:10px; border-radius:10px; max-width:100%; height:auto; }
+  .qr { display:block; margin:12px auto; background:#fff; padding:10px; border-radius:18px; border:2px solid #e3ecf8; max-width:100%; height:auto; }
   .hint { margin:0 0 8px; } .small { font-size:13px; color:var(--muted); text-align:center; } .privacy { font-size:12px; } .privacy a { color:var(--accent); }
   .card-box { display:flex; flex-direction:column; gap:6px; margin-top:16px; }
   label { font-size:14px; color:var(--muted); }
   input { font:inherit; padding:10px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); width:100%; }
-  button { font:inherit; font-weight:600; padding:12px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; margin-top:8px; }
+  button { font:inherit; font-weight:600; padding:12px; border:0; border-radius:12px; background:linear-gradient(100deg,#0996ee,#0747ae); color:#fff; cursor:pointer; margin-top:8px; }
   button:disabled { opacity:.6; cursor:wait; }
   button.link { background:none; color:var(--accent); padding:0 4px; margin:0; font-weight:500; }
   .row { display:flex; gap:12px; } .row > div { flex:1; display:flex; flex-direction:column; gap:6px; }
@@ -109,10 +109,13 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
   .result { text-align:center; } .result h2 { margin:8px 0; } .ok { color:var(--ok); } .bad { color:var(--bad); }
   .error { color:var(--bad); font-size:14px; min-height:1.2em; margin:8px 0 0; }
   [hidden] { display:none !important; }
+  .bizhubpay-brand { display:block; width:min(270px,85%); height:94px; object-fit:contain; margin:0 auto 14px; }
+  button:focus-visible,input:focus-visible { outline:2px solid #ff9319; outline-offset:2px; }
+  @media(max-width:520px) { main { margin:14px auto; padding:0 12px; } .panel { padding:18px; } .amount { font-size:32px; } }
 </style>
 </head>
 <body>
-<main>
+<main><img class="bizhubpay-brand" src="/assets/bizhubpay-logo.svg" alt="BIZHUB PAY Pay Smart Grow Together">
   <div class="panel">
     <p class="merchant">${esc(m.name)}${live ? "" : " · โหมดทดสอบ"}</p>
     <p class="amount">฿${baht(p.amount)}</p>
