@@ -210,13 +210,13 @@ nav.tabs button[aria-current="page"] { font-weight:750; }
 /* Brand lockup used on every authenticated screen and both login forms. */
 header.top .brand,header.top .brand.admin {
   display:inline-block; width:210px; min-width:180px; height:57px;
-  background:url('/assets/bizhubpay-logo.svg') center/contain no-repeat;
+  background:url('/assets/bizhubpay-original-transparent.png') center/contain no-repeat;
   font-size:0; line-height:0; overflow:hidden; flex-shrink:0;
 }
 header.top .brand::after { content:none; }
 .login::before {
   content:""; display:block; width:100%; height:110px;
-  background:url('/assets/bizhubpay-logo.svg') center/contain no-repeat;
+  background:url('/assets/bizhubpay-original-transparent.png') center/contain no-repeat;
   border:0; padding:0; margin-bottom:4px;
 }
 .login h1 { font-size:18px; text-align:center; }
@@ -416,7 +416,7 @@ header.top .bar { align-items:center; }
  header.top .brand,header.top .brand.admin {
   position:fixed;left:0;top:0;z-index:15;width:244px;min-width:244px;height:165px;
   padding:22px 15px;background-color:#061e50;border-radius:0;box-shadow:none;
-  background-image:url('/assets/bizhubpay-logo.svg');background-size:calc(100% - 28px) auto;
+  background-image:url('/assets/bizhubpay-original-transparent.png');background-size:calc(100% - 28px) auto;
   background-position:center 38px;background-repeat:no-repeat;
  }
  header.top nav.tabs { top:165px;width:244px;padding-top:20px;background:linear-gradient(180deg,#061e50,#062d6b 75%,#041b4a); }
@@ -446,7 +446,7 @@ header.top .bar { align-items:center; }
 /* MASTER 1000038458.png — final structural brand and dashboard layout */
 @media(min-width:1080px) {
  header.top .brand,header.top .brand.admin {
-  background:#061e50 url('/assets/bizhubpay-logo-dark.svg') center 4px / 100% 156px no-repeat !important;
+  background:#061e50 url('/assets/bizhubpay-original-transparent.png') center 4px / 100% 156px no-repeat !important;
   border:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;
   height:174px!important;padding:0!important;
  }
@@ -455,7 +455,7 @@ header.top .bar { align-items:center; }
 }
 @media(max-width:1079px) {
  header.top .brand,header.top .brand.admin {
-  background:transparent url('/assets/bizhubpay-logo-dark.svg') center / contain no-repeat!important;
+  background:transparent url('/assets/bizhubpay-original-transparent.png') center / contain no-repeat!important;
   border:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;padding:0!important;
   width:185px;min-width:185px;height:92px;
  }
