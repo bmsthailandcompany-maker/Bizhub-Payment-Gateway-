@@ -104,6 +104,17 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const app = Fastify({ logger: deps.logger ?? true, bodyLimit: 1024 * 1024, trustProxy: true });
   await app.register(multipart, { limits: { fileSize: MAX_SLIP_BYTES, files: 1, fields: 5 } });
 
+  // Visitors who type the bare domain (bizhubpay.com) land on the canonical www host from PUBLIC_BASE_URL,
+  // so session cookies and payment links always use one host. Health checks are never redirected.
+  const canonical = new URL(config.publicBaseUrl);
+  if (canonical.hostname.startsWith("www.")) {
+    const bare = canonical.hostname.slice(4);
+    app.addHook("onRequest", async (req, reply) => {
+      if (req.hostname.split(":")[0].toLowerCase() !== bare || req.url === "/health") return;
+      return reply.redirect(canonical.origin + req.url, req.method === "GET" || req.method === "HEAD" ? 301 : 308);
+    });
+  }
+
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof PaymentError) {
       return reply.code(err.statusCode).send({ error: { code: err.code, message: err.message } });
