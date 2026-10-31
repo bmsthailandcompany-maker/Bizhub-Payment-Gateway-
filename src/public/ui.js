@@ -364,8 +364,20 @@
         user ? h("span", { class: "who" }, h("b", {}, user.name), user.role_label) : null,
         h("button", { class: "btn sm", type: "button", onclick: onLogout }, "ออกจากระบบ")),
       nav));
+    const menuButton = h("button", { class:"mobile-menu-btn", type:"button", "aria-label":"เปิดเมนู", "aria-expanded":"false" }, "☰ เมนู");
+    const menuBackdrop = h("button", { class:"mobile-menu-backdrop", type:"button", "aria-label":"ปิดเมนู", hidden:true });
+    const toggleMenu = (open) => {
+      top.classList.toggle("menu-open", open);
+      menuButton.setAttribute("aria-expanded", String(open));
+      menuBackdrop.hidden = !open;
+      document.body.classList.toggle("bizhub-menu-open", open);
+    };
+    menuButton.addEventListener("click", () => toggleMenu(!top.classList.contains("menu-open")));
+    menuBackdrop.addEventListener("click", () => toggleMenu(false));
+    nav.querySelectorAll("button").forEach((button) => button.addEventListener("click", () => toggleMenu(false)));
+    top.querySelector(".bar").append(menuButton);
     const main = h("main", { class: "wrap" });
-    root.replaceChildren(top, main);
+    root.replaceChildren(top, menuBackdrop, main);
     return main;
   }
 
