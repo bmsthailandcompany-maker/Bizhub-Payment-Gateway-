@@ -696,3 +696,12 @@ header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {b
  .login-scene .unified-login {padding:21px 18px!important;gap:11px!important;}
  .login-scene .login-brand {width:165px!important;height:104px!important;}
 }
+
+/* Master login artwork: WebP first; legacy SVG stays as fallback until image asset is uploaded. */
+.login-scene {
+ background-color:#b9e5ff!important;
+ background-image:url('/assets/bizhubpay-login-background.webp'),url('/assets/bizhubpay-login-bg.svg')!important;
+ background-position:center center,center center!important;
+ background-size:cover,cover!important;
+ background-repeat:no-repeat,no-repeat!important;
+}
