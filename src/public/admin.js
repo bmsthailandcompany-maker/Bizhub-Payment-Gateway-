@@ -23,6 +23,7 @@
     { id: "webhooks", label: "Webhook", perm: "merchants.view" },
     { id: "admins", label: "บัญชีแอดมิน", perm: "admins.manage" },
     { id: "audit", label: "ประวัติการใช้งาน", perm: "audit.view" },
+    { id: "providers", label: "Payment Provider", perm: "admins.manage" },
     { id: "account", label: "บัญชีของฉัน", perm: null },
   ];
 
@@ -46,7 +47,7 @@
     if (!t || (t.perm && !can(t.perm))) tab = TABS.find((x) => !x.perm || can(x.perm)).id;
     S.tab = tab;
     renderShell(S.badges);
-    const views = { overview: viewOverview, merchants: viewMerchants, kyc: viewKycQueue, payments: viewPayments, billing: viewBilling, webhooks: viewWebhooks, admins: viewAdmins, audit: viewAudit, account: viewAccount };
+    const views = { overview: viewOverview, merchants: viewMerchants, kyc: viewKycQueue, payments: viewPayments, billing: viewBilling, webhooks: viewWebhooks, admins: viewAdmins, audit: viewAudit, providers: viewProviders, account: viewAccount };
     Promise.resolve(views[tab]()).catch((ex) => main.replaceChildren(h("p", { class: "error" }, ex.message)));
   }
 
@@ -457,6 +458,23 @@
   }
 
   // ---------- my account ----------
+  function viewProviders() {
+    const status=h("p",{class:"small muted"},"ยังไม่ได้ตรวจสอบ");
+    const check=h("button",{class:"btn primary",type:"button",onclick:async()=>{
+      check.disabled=true;status.textContent="กำลังตรวจสอบ Omise Sandbox…";
+      try {
+        const r=await api("/providers/omise/test");
+        status.textContent=!r.configured?"ไม่พบ Omise Test Secret Key ใน Railway":r.connected?"เชื่อมต่อ Omise Sandbox สำเร็จ (Test Mode เท่านั้น)":"พบ Key แล้ว แต่ Omise API ไม่ตอบรับ";
+      }catch(ex){status.textContent="ตรวจสอบไม่สำเร็จ: "+ex.message;}
+      finally{check.disabled=false;}
+    }},"ทดสอบการเชื่อมต่อ Omise");
+    main.replaceChildren(h("h1",{},"Payment Provider"),h("div",{class:"card grid narrow"},
+      h("h2",{class:"m0"},"Omise / Opn Payments"),
+      h("p",{class:"small muted"},"การตั้งค่า API ส่วนกลางของ BIZHUB PAY • ไม่เปิดเผย Secret Key • ยังไม่เปิดรับเงินจริง"),
+      status,check,
+      h("div",{class:"notice small"},"การทดสอบนี้ตรวจสอบ API Key เท่านั้น ไม่ใช่การยืนยันการรับเงินเข้าบัญชีของร้านค้าแต่ละราย")));
+  }
+
   function viewAccount() {
     const mfaBox = h("div", { class: "narrow" });
     if (S.me.user.kind === "admin_user") UI.twoFactorCard(mfaBox, { api }).catch((ex) => mfaBox.replaceChildren(h("p", { class: "error" }, ex.message)));
