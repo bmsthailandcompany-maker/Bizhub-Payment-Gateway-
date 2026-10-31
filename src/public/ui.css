@@ -442,3 +442,39 @@ header.top .bar { align-items:center; }
 .merchant-solution-icon { font-size:27px;line-height:1.3; }
 @media(max-width:800px) { .merchant-solutions-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:420px) { .merchant-solution-card { min-height:112px;padding:12px; } .merchant-solution-card strong { font-size:14px; } }
+
+/* MASTER 1000038458.png — final structural brand and dashboard layout */
+@media(min-width:1080px) {
+ header.top .brand,header.top .brand.admin {
+  background:#061e50 url('/assets/bizhubpay-logo-dark.svg') center 4px / 100% 156px no-repeat !important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;
+  height:174px!important;padding:0!important;
+ }
+ header.top nav.tabs { top:174px!important; }
+ header.top .bar { margin-left:244px; }
+}
+@media(max-width:1079px) {
+ header.top .brand,header.top .brand.admin {
+  background:transparent url('/assets/bizhubpay-logo-dark.svg') center / contain no-repeat!important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;padding:0!important;
+  width:185px;min-width:185px;height:92px;
+ }
+}
+@media(max-width:520px) {
+ header.top .brand,header.top .brand.admin { width:155px;min-width:155px;height:77px; }
+}
+.merchant-welcome { display:flex;align-items:center;justify-content:space-between; }
+.merchant-welcome h1 { font-size:24px; }
+.merchant-breakdown { min-width:0; }
+.merchant-breakdown-body { display:grid;grid-template-columns:170px 1fr;gap:20px;align-items:center; }
+.merchant-donut { width:170px;height:170px;border-radius:50%;display:grid;place-items:center; }
+.merchant-donut-inner { width:105px;height:105px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;flex-direction:column;color:var(--fg); }
+.merchant-donut-inner strong { font-size:23px; }
+.merchant-donut-inner span { font-size:11px;color:var(--muted); }
+.merchant-legend { display:grid;gap:14px; }
+.merchant-legend-row { display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:9px;align-items:center;font-size:13px; }
+.merchant-legend-dot { width:12px;height:12px;border-radius:50%;background:#0876f4; }
+.merchant-legend-dot.card { background:#ff970f;border:0;padding:0;box-shadow:none; }
+.merchant-legend-dot.bank_transfer { background:#20c879; }
+@media(max-width:1280px) { .merchant-breakdown-body { grid-template-columns:130px 1fr;gap:12px; } .merchant-donut { width:130px;height:130px; } .merchant-donut-inner { width:83px;height:83px; } }
+@media(max-width:650px) { .merchant-breakdown-body { grid-template-columns:115px 1fr;gap:10px; } .merchant-donut { width:115px;height:115px; } .merchant-donut-inner { width:72px;height:72px; } .merchant-legend-row { font-size:11px; } }
