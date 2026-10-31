@@ -163,3 +163,46 @@ dl.kv dt { color:var(--muted); font-size:13px; } dl.kv dd { margin:0; word-break
 .codes code { font-family:ui-monospace, monospace; font-size:15px; padding:8px; text-align:center; border-radius:6px; background:var(--surface-2); border:1px solid var(--line); }
 ol.steps { margin:0; padding-left:20px; display:grid; gap:14px; }
 ol.steps li > input { margin-top:8px; }
+
+/* BIZHUB PAY Merchant UI v1 — visual-only layer, no payment logic changes. */
+:root {
+  --bg:#f1f6fd; --surface:#fff; --surface-2:#f7faff; --fg:#092450;
+  --muted:#60748e; --line:#dce7f5; --grid:#e8f0fb;
+  --accent:#0759cb; --accent-soft:#e8f3ff; --bar:#118be9; --bar-hover:#0759cb;
+  --brand-admin:#ff870e;
+}
+body { background:linear-gradient(155deg,#e9f4ff 0%,#f6f9ff 40%,#f1f6fd 100%); }
+header.top { background:linear-gradient(100deg,#071d50,#0756b9); border-bottom:3px solid #ff8c12; color:#fff; box-shadow:0 6px 20px #0b397a18; }
+header.top .brand, header.top .brand.admin { color:#fff; font-weight:850; letter-spacing:.035em; }
+header.top .brand::after { content:" PAY"; color:#ff9c24; }
+header.top .shop, header.top .who, header.top .who b { color:#e4efff; }
+header.top nav.tabs button { color:#d7e8ff; }
+header.top nav.tabs button[aria-current="page"] { color:#fff; border-bottom-color:#ff9418; }
+header.top .mode-switch button { color:#173c70; }
+.card { border-radius:18px; border-color:#e1eaf7; box-shadow:0 5px 20px #0b397a0a; }
+.tile { background:linear-gradient(150deg,#fff,#f4f9ff); }
+.tile .value { color:#063e92; letter-spacing:-.035em; }
+.btn { border-radius:11px; font-weight:650; transition:background .15s,transform .15s; }
+.btn.primary { background:linear-gradient(100deg,#0d94ee,#064bb4); border-color:#075bc8; box-shadow:0 3px 10px #075bc828; }
+.btn.primary:hover { background:linear-gradient(100deg,#067ad3,#063b96); }
+.btn:active { transform:translateY(1px); }
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible { outline:2px solid #ff9418; outline-offset:2px; }
+.login { background:#fff; padding:30px; border:1px solid #e0eaf7; border-radius:22px; box-shadow:0 20px 65px #092c6620; }
+.login::before { content:"BIZHUB PAY"; display:block; font-size:25px; font-weight:900; letter-spacing:-.025em; color:#073879; border-left:5px solid #ff8b0a; padding-left:12px; }
+nav.tabs button[aria-current="page"] { font-weight:750; }
+@media(max-width:640px) {
+  main { padding:14px 0 38px; }
+  .wrap { padding:0 12px; }
+  .card { padding:15px; border-radius:15px; }
+  .tile .value { font-size:23px; }
+  header.top .bar { min-height:62px; }
+  .login { margin:5vh 12px; padding:22px; }
+}
+@media(prefers-color-scheme:dark) {
+  :root:not([data-theme="light"]) { --bg:#0a1630;--surface:#102346;--surface-2:#152b50;--fg:#edf5ff;--muted:#adc1df;--line:#2a4265;--grid:#23395a;--accent:#58b6ff;--accent-soft:#153d68;--bar:#349df2;--bar-hover:#62bbff; }
+  body { background:linear-gradient(150deg,#07152d,#0e2143); }
+  .card,.tile { background:#102346; border-color:#284264; }
+  .tile .value { color:#9ed2ff; }
+  .login { background:#102346; border-color:#284264; }
+  .login::before { color:#fff; }
+}
