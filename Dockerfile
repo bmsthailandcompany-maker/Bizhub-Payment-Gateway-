@@ -14,7 +14,7 @@ COPY scripts ./scripts
 # The database, slip images and backups live here; mount a volume so they survive upgrades.
 RUN mkdir -p /data && chown node:node /data
 ENV DATA_DIR=/data PORT=3000
-VOLUME /data
+# No VOLUME instruction: docker-compose mounts a named volume at /data, and Railway rejects VOLUME (attach a Railway volume instead).
 EXPOSE 3000
 
 USER node

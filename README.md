@@ -76,6 +76,30 @@ sudo bash scripts/setup-server.sh pay.bizhubpay.com you@company.com "ชื่�
 - **ระยะเวลาเก็บสลิป (PDPA):** ตั้ง `SLIP_RETENTION_DAYS` เพื่อลบรูปสลิปของรายการที่ปิดแล้วเมื่อเกินกำหนด เลขอ้างอิงธนาคารยังเก็บไว้ จึงยังกันสลิปซ้ำได้
   ค่าเริ่มต้นคือ 0 (เก็บไว้ตลอด) ให้กำหนดร่วมกับฝ่ายบัญชีว่าต้องเก็บหลักฐานนานเท่าไร
 
+## ติดตั้งบน Railway
+
+ไม่ต้องดูแลเซิร์ฟเวอร์เอง Railway build จาก `Dockerfile` และออกใบรับรอง HTTPS ให้ (ตั้งค่าไว้ใน `railway.json` แล้ว)
+
+1. **New Project → Deploy from GitHub repo** เลือก repo นี้ (และ branch ที่ใช้)
+2. **ติด Volume:** คลิกขวาที่ service → Attach volume → Mount path `/data` (เก็บฐานข้อมูล, สลิป และไฟล์สำรอง ถ้าไม่ติด ข้อมูลหายทุกครั้งที่ deploy)
+3. **Variables** ของ service:
+
+   | ชื่อ | ค่า |
+   |---|---|
+   | `ADMIN_TOKEN` | สุ่มยาว ๆ (ใช้ปุ่มสร้างค่าสุ่มของ Railway หรือ `openssl rand -hex 32`) |
+   | `PUBLIC_BASE_URL` | `https://pay.bizhubpay.com` |
+   | `DATA_DIR` | `/data` |
+   | `RAILWAY_RUN_UID` | `0` (ให้แอปเขียน volume ได้) |
+   | `ADMIN_REQUIRE_2FA` | `true` |
+
+   ค่าอื่นดูจาก `.env.example` (SlipOK, ค่าบริการ, สำรองข้อมูลนอกเครื่อง) ไม่ต้องตั้ง `PORT` เพราะ Railway ใส่ให้เอง
+4. **Settings → Networking → Custom Domain** ใส่ `pay.bizhubpay.com` แล้วไปเพิ่ม record ที่ผู้ให้บริการโดเมนตามที่ Railway แสดง
+   (ปกติคือ `CNAME` ชื่อ `pay` และอาจมี `TXT` ชื่อ `_railway-verify.pay` สำหรับยืนยันความเป็นเจ้าของ)
+5. เปิด `https://pay.bizhubpay.com/admin/console` เลือก "เข้าด้วย ADMIN_TOKEN" แล้วสร้างบัญชีแอดมินส่วนตัวที่เมนู "บัญชีแอดมิน" จากนั้นใช้บัญชีนั้นแทน
+
+- รันได้ **1 instance เท่านั้น** (ฐานข้อมูลเป็น SQLite ในไฟล์) อย่าเพิ่ม replicas
+- ไฟล์สำรองอัตโนมัติอยู่ใน volume เดียวกัน ควรตั้ง `BACKUP_S3_*` (เช่น Cloudflare R2) เพื่อเก็บสำเนาไว้นอก Railway ด้วย
+
 ## ใช้แทนการรับโอนแบบแมนนวล
 
 ถ้าตอนนี้ลูกค้าโอนเข้าเลขบัญชีแล้วส่งสลิปให้พนักงานเช็กเอง:
