@@ -61,6 +61,12 @@ docker compose exec gateway node --import tsx scripts/create-admin.ts --email yo
 
 แล้วเปิด `https://<โดเมน>/admin/console` เพื่อสร้างร้าน (บริษัทของคุณ) และบัญชีเจ้าของ
 
+หรือใช้สคริปต์ติดตั้งครั้งแรก ซึ่งติดตั้ง Docker ตรวจว่า DNS ชี้มาถูกเครื่อง สร้าง `.env` พร้อมรหัสลับแบบสุ่ม เปิดระบบ และสร้างบัญชีแอดมินให้ในคำสั่งเดียว:
+
+```bash
+sudo bash scripts/setup-server.sh pay.bizhubpay.com you@company.com "ชื่อคุณ"
+```
+
 - **ข้อมูลทั้งหมด** (ฐานข้อมูล, รูปสลิป, ไฟล์สำรอง) อยู่ใน volume `gateway-data` อัปเดตเวอร์ชันด้วย `git pull && docker compose up -d --build` โดยข้อมูลไม่หาย
 - **สำรองข้อมูลอัตโนมัติ** ทุก `BACKUP_INTERVAL_HOURS` ชั่วโมง (ค่าเริ่มต้น 24) ไว้ที่ `/data/backups` เก็บ `BACKUP_KEEP` ไฟล์ล่าสุด
 - **สำรองนอกเครื่อง:** ตั้ง `BACKUP_S3_*` แล้วระบบจะส่งไฟล์สำรองฐานข้อมูลและรูปสลิปใหม่ ๆ ไปเก็บใน bucket แบบ S3
