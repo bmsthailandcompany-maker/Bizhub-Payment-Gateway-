@@ -12,13 +12,13 @@
   function showLogin() {
     S.me = null;
     UI.loginView(root, {
-      title: "BIZHUB PAY Merchant Portal",
-      subtitle: "เข้าสู่ระบบด้วยบัญชีพนักงานของร้าน",
-      altLabel: "เข้าด้วย Secret key (เจ้าของร้าน)",
-      altField: { name: "secret_key", label: "Secret key", placeholder: "sk_live_... หรือ sk_test_...", hint: "ใช้ sk_test_ เพื่อดูข้อมูลทดสอบ หรือ sk_live_ เพื่อดูข้อมูลจริง ระบบไม่เก็บ key ไว้ในเบราว์เซอร์" },
       onSubmit: async (body) => {
-        const r = await api("/login", { method: "POST", body, allow401: true });
-        if (r.mfa_required) return UI.mfaPrompt(root, { api, token: r.mfa_token, onDone: boot, onBack: showLogin });
+        const r = await api("/unified-login",{method:"POST",body,allow401:true});
+        if (r.mfa_required) {
+          const mfaApi = r.scope === "admin" ? makeApi("/admin/console/api",showLogin) : api;
+          return UI.mfaPrompt(root,{api:mfaApi,token:r.mfa_token,onDone:()=>r.scope==="admin" ? window.location.assign("/admin/console") : boot(),onBack:showLogin});
+        }
+        if (r.scope === "admin") {window.location.assign("/admin/console");return;}
         await boot();
       },
     });
