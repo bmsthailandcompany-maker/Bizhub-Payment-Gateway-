@@ -193,6 +193,18 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
     });
 
     // ---- overview ----
+    api.get(`${BASE}/providers/omise/test`, { preHandler: need("admins.manage") }, async () => {
+      const key = process.env.OMISE_TEST_SECRET_KEY;
+      if (!key || !key.startsWith("skey_test_")) return {configured:false,connected:false,mode:"test"};
+      try {
+        const response = await fetch("https://api.omise.co/account",{
+          headers:{Authorization:"Basic "+Buffer.from(key+":").toString("base64")},
+          signal:AbortSignal.timeout(8000),
+        });
+        return {configured:true,connected:response.ok,mode:"test",status:response.ok?"verified":"connection_failed"};
+      } catch { return {configured:true,connected:false,mode:"test",status:"unreachable"}; }
+    });
+
     api.get(`${BASE}/summary`, { preHandler: need("payments.view") }, async (req) => {
       const { livemode } = z.object({ livemode: z.enum(["true", "false"]).default("true") }).parse(req.query);
       const live = livemode === "true";
