@@ -468,6 +468,18 @@
       }catch(ex){status.textContent="ตรวจสอบไม่สำเร็จ: "+ex.message;}
       finally{check.disabled=false;}
     }},"ทดสอบการเชื่อมต่อ Omise");
+    const webhookBox=h("div",{class:"card grid"},h("h3",{},"Webhook Auto Confirmation"),h("p",{},"กำลังตรวจสอบสถานะ…"));
+    async function refreshWebhook(){
+      try{
+        const w=await api("/providers/omise/webhook-status");
+        webhookBox.replaceChildren(h("h3",{},"Webhook Auto Confirmation"),
+          h("p",{class:"small"},w.configured?"ตั้งค่า Webhook Token แล้ว":"ยังไม่ได้ตั้งค่า OMISE_SANDBOX_WEBHOOK_TOKEN ใน Railway"),
+          h("p",{class:"small muted"},"Endpoint: /webhooks/omise/sandbox?token=... (กำหนดใน Omise Test Mode)"),
+          h("p",{class:"small"},"ได้รับ Event "+w.events.length+" รายการ"),
+          ...w.events.slice(0,10).map(e=>h("p",{class:"small mono"},e.charge_id+" • "+e.status+" • "+e.received_at)),
+          h("p",{class:"notice small"},"รับและตรวจสอบ Event กับ Omise API แล้วบันทึกประวัติเท่านั้น ยังไม่อัปเดตสถานะการชำระเงินจริงของร้านค้า"));
+      }catch(e){webhookBox.replaceChildren(h("p",{class:"error"},"อ่าน Webhook ไม่สำเร็จ: "+e.message));}
+    }
     const history=h("div",{class:"grid"},h("p",{class:"small muted"},"กำลังโหลดประวัติจาก Omise…"));
     async function refreshHistory() {
       try {
@@ -505,8 +517,8 @@
       h("div",{class:"notice small"},"ตรวจสอบ API Key เท่านั้น ไม่ยืนยันการรับเงินเข้าบัญชีร้านค้า"),
       h("h2",{},"PromptPay Sandbox"),create,
       h("button",{class:"btn",type:"button",onclick:refreshHistory},"รีเฟรชประวัติรายการทดสอบ"),
-      history));
-    refreshHistory();
+      history,webhookBox));
+    refreshHistory();refreshWebhook();
   }
 
   function viewAccount() {
