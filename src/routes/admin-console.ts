@@ -145,21 +145,31 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
       const signature=req.headers["omise-signature"];
       const timestamp=req.headers["omise-signature-timestamp"];
       const raw=req.body;
-      if(!secret || typeof signature!=="string" || typeof timestamp!=="string" || !Buffer.isBuffer(raw))
+      if(!secret || typeof signature!=="string" || typeof timestamp!=="string" || !Buffer.isBuffer(raw)) {
+        req.log.warn({reason:!secret?"secret_missing":typeof signature!=="string"?"signature_header_missing":typeof timestamp!=="string"?"timestamp_header_missing":"raw_body_missing"},"omise_webhook_rejected");
         return reply.code(401).send({ok:false});
+      }
       const ts=Number(timestamp);
       if(!/^\\d{10,13}$/.test(timestamp) || !Number.isSafeInteger(ts) ||
-         Math.abs(Date.now()-ts*(timestamp.length===13?1:1000))>300000)
+         Math.abs(Date.now()-ts*(timestamp.length===13?1:1000))>300000) {
+        req.log.warn({reason:"timestamp_invalid_or_outside_window"},"omise_webhook_rejected");
         return reply.code(401).send({ok:false});
+      }
       const key=Buffer.from(secret,"base64");
-      if(key.length<24) return reply.code(401).send({ok:false});
+      if(key.length<24) {
+        req.log.warn({reason:"secret_decode_invalid"},"omise_webhook_rejected");
+        return reply.code(401).send({ok:false});
+      }
       const expected=createHmac("sha256",key).update(timestamp+".").update(raw).digest();
       const valid=signature.split(",").some(part=>{
         const hex=part.trim();
         if(!/^[a-f0-9]{64}$/i.test(hex)) return false;
         return timingSafeEqual(Buffer.from(hex,"hex"),expected);
       });
-      if(!valid) return reply.code(401).send({ok:false});
+      if(!valid) {
+        req.log.warn({reason:"signature_mismatch",signatureCount:signature.split(",").length},"omise_webhook_rejected");
+        return reply.code(401).send({ok:false});
+      }
       let body:unknown;
       try{body=JSON.parse(raw.toString("utf8"));}catch{return reply.code(400).send({ok:false});}
       const payload=z.object({
