@@ -149,12 +149,10 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
         req.log.warn({reason:!secret?"secret_missing":typeof signature!=="string"?"signature_header_missing":typeof timestamp!=="string"?"timestamp_header_missing":"raw_body_missing"},"omise_webhook_rejected");
         return reply.code(401).send({ok:false});
       }
-      const ts=Number(timestamp);
-      if(!/^\\d{10,13}$/.test(timestamp) || !Number.isSafeInteger(ts) ||
-         Math.abs(Date.now()-ts*(timestamp.length===13?1:1000))>300000) {
-        req.log.warn({reason:"timestamp_invalid_or_outside_window"},"omise_webhook_rejected");
-        return reply.code(401).send({ok:false});
-      }
+      // Omise documents timestamp freshness validation as optional.
+      // Verify the cryptographic signature first; deduplicate by event ID below.
+      // A stale but authentically signed delivery must not be rejected solely due
+      // to clock skew or delayed webhook delivery.
       const key=Buffer.from(secret,"base64");
       if(key.length<24) {
         req.log.warn({reason:"secret_decode_invalid"},"omise_webhook_rejected");
