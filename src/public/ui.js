@@ -192,28 +192,23 @@
   }
 
   // ---------- login & password ----------
-  function loginView(root, { title, subtitle, brandClass, onSubmit, altLabel, altField }) {
-    let alt = false;
-    const err = h("p", { class: "error", role: "alert" });
-    const email = h("input", { type: "email", id: "email", autocomplete: "username", required: true });
-    const pw = h("input", { type: "password", id: "password", autocomplete: "current-password", required: true });
-    const key = h("input", { type: "password", id: "altkey", autocomplete: "off", placeholder: altField.placeholder });
-    const userFields = h("div", { class: "grid" }, h("label", { class: "f", for: "email" }, "อีเมล", email), h("label", { class: "f", for: "password" }, "รหัสผ่าน", pw));
-    const altFields = h("div", { class: "grid", hidden: true }, h("label", { class: "f", for: "altkey" }, altField.label, key), h("p", { class: "small" }, altField.hint));
-    const toggle = h("button", { class: "link small", type: "button", onclick: () => {
-      alt = !alt; userFields.hidden = alt; altFields.hidden = !alt;
-      email.required = !alt; pw.required = !alt; key.required = alt;
-      toggle.textContent = alt ? "เข้าด้วยอีเมลและรหัสผ่าน" : altLabel;
-      (alt ? key : email).focus();
-    } }, altLabel);
-    const btn = h("button", { class: "btn primary", type: "submit" }, "เข้าสู่ระบบ");
-    const form = h("form", { class: "card login", onsubmit: async (e) => {
-      e.preventDefault(); err.textContent = ""; btn.disabled = true;
-      try { await onSubmit(alt ? { [altField.name]: key.value.trim() } : { email: email.value.trim(), password: pw.value }); }
-      catch (ex) { err.textContent = ex.message; pw.value = ""; }
-      finally { btn.disabled = false; }
-    } }, h("h1", { class: "m0 " + (brandClass || "") }, title), h("p", {}, subtitle), userFields, altFields, err, h("div", { class: "row" }, btn, h("span", { class: "spacer" }), toggle));
-    root.replaceChildren(h("div", { class: "wrap" }, form));
+  function loginView(root, { onSubmit }) {
+    const err = h("p",{class:"error",role:"alert"});
+    const email = h("input",{type:"email",id:"email",autocomplete:"username",required:true,placeholder:"อีเมลผู้ใช้งาน"});
+    const pw = h("input",{type:"password",id:"password",autocomplete:"current-password",required:true,placeholder:"รหัสผ่าน"});
+    const btn = h("button",{class:"btn primary login-submit",type:"submit"}, h("span",{class:"login-submit-icon","aria-hidden":"true"},"➜"),h("span",{},"เข้าสู่ระบบ"));
+    const form = h("form",{class:"card login unified-login",onsubmit:async(e)=>{
+      e.preventDefault();err.textContent="";btn.disabled=true;
+      try {await onSubmit({email:email.value.trim(),password:pw.value});}
+      catch(ex){err.textContent=ex.message;pw.value="";}
+      finally {btn.disabled=false;}
+    }},
+      h("h1",{},"เข้าสู่ระบบ BIZHUB PAY"),
+      h("p",{class:"login-subtitle"},"แพลตฟอร์มชำระเงินและจัดการธุรกิจสำหรับทุกบทบาท"),
+      h("label",{class:"f"},"อีเมล / User ID",email),
+      h("label",{class:"f"},"รหัสผ่าน",pw),
+      err,btn);
+    root.replaceChildren(h("div",{class:"login-scene"},h("div",{class:"login-shell"},h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),form)));
     email.focus();
   }
 
@@ -329,7 +324,7 @@
   function changePasswordView(root, { api, forced, onDone }) {
     const err = h("p", { class: "error", role: "alert" });
     const cur = h("input", { type: "password", autocomplete: "current-password", required: true });
-    const next = h("input", { type: "password", autocomplete: "new-password", required: true });
+    const next = h("input", { type: "password", autocomplete: "new-password", minlength: 6, required: true });
     const again = h("input", { type: "password", autocomplete: "new-password", required: true });
     const btn = h("button", { class: "btn primary", type: "submit" }, "บันทึกรหัสผ่านใหม่");
     const form = h("form", { class: "card login", onsubmit: async (e) => {
@@ -342,7 +337,7 @@
       h("h1", { class: "m0" }, forced ? "ตั้งรหัสผ่านใหม่" : "เปลี่ยนรหัสผ่าน"),
       forced ? h("p", {}, "นี่เป็นการเข้าใช้ครั้งแรกด้วยรหัสผ่านชั่วคราว กรุณาตั้งรหัสผ่านของคุณเองก่อนใช้งาน") : null,
       h("label", { class: "f" }, forced ? "รหัสผ่านชั่วคราว" : "รหัสผ่านปัจจุบัน", cur),
-      h("label", { class: "f" }, "รหัสผ่านใหม่", next, h("span", { class: "small muted" }, "อย่างน้อย 10 ตัวอักษร มีทั้งตัวอักษรและตัวเลข")),
+      h("label", { class: "f" }, "รหัสผ่านใหม่", next, h("span", { class: "small muted" }, "อย่างน้อย 6 ตัวอักษร")),
       h("label", { class: "f" }, "ยืนยันรหัสผ่านใหม่", again),
       err, h("div", { class: "row" }, btn));
     root.replaceChildren(h("div", { class: "wrap" }, form));
@@ -350,7 +345,7 @@
   }
 
   // ---------- shell ----------
-  function shell(root, { brand, brandClass, subtitle, pills, tabs, current, onTab, user, onLogout, extra }) {
+  function shell(root, { brand, brandClass, subtitle, pills, tabs, current, onTab, user, onLogout, onProfile, extra }) {
     const nav = h("nav", { class: "tabs", "aria-label": "เมนู" }, tabs.map((t) =>
       h("button", { type: "button", "aria-current": current === t.id ? "page" : null, onclick: () => onTab(t.id) },
         t.label, t.badge ? h("span", { class: "badge-count" }, t.badge) : null)));
@@ -361,9 +356,11 @@
         pills,
         h("span", { class: "spacer" }),
         extra || null,
-        user ? h("span", { class: "who" }, h("b", {}, user.name), user.role_label) : null,
-        h("button", { class: "btn sm", type: "button", onclick: onLogout }, "ออกจากระบบ")),
+        user ? h("button", { class: "who profile-shortcut", type:"button", title:"แก้ไขโปรไฟล์ส่วนตัว", onclick: onProfile || (() => {}) }, h("b", {}, user.name), user.role_label) : null,
+        null),
       nav));
+    nav.prepend(h("div", {class:"nav-brand-wordmark","aria-label":"Bizhub Pay"}, h("span",{},"BIZHUB"),h("strong",{},"PAY")));
+    nav.append(h("button", { class:"nav-logout", type:"button", onclick: onLogout }, "⏻ ออกจากระบบ"));
     const menuButton = h("button", { class:"mobile-menu-btn", type:"button", "aria-label":"เปิดเมนู", "aria-expanded":"false" }, "☰ เมนู");
     const menuBackdrop = h("button", { class:"mobile-menu-backdrop", type:"button", "aria-label":"ปิดเมนู", hidden:true });
     const toggleMenu = (open) => {

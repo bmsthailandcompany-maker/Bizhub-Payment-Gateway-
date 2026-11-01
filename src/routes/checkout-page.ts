@@ -115,7 +115,7 @@ export function renderCheckoutPage({ payment: p, merchant: m, nonce, omisePublic
 </style>
 </head>
 <body>
-<main><img class="bizhubpay-brand" src="/assets/bizhubpay-logo.svg" alt="BIZHUB PAY Pay Smart Grow Together">
+<main><img class="bizhubpay-brand" src="/assets/bizhubpay-original-transparent.png" alt="BIZHUB PAY Pay Smart Grow Together">
   <div class="panel">
     <p class="merchant">${esc(m.name)}${live ? "" : " · โหมดทดสอบ"}</p>
     <p class="amount">฿${baht(p.amount)}</p>

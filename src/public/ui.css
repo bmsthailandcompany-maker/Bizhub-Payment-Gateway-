@@ -210,13 +210,13 @@ nav.tabs button[aria-current="page"] { font-weight:750; }
 /* Brand lockup used on every authenticated screen and both login forms. */
 header.top .brand,header.top .brand.admin {
   display:inline-block; width:210px; min-width:180px; height:57px;
-  background:url('/assets/bizhubpay-logo.svg') center/contain no-repeat;
+  background:url('/assets/bizhubpay-original-transparent.png') center/contain no-repeat;
   font-size:0; line-height:0; overflow:hidden; flex-shrink:0;
 }
 header.top .brand::after { content:none; }
 .login::before {
   content:""; display:block; width:100%; height:110px;
-  background:url('/assets/bizhubpay-logo.svg') center/contain no-repeat;
+  background:url('/assets/bizhubpay-original-transparent.png') center/contain no-repeat;
   border:0; padding:0; margin-bottom:4px;
 }
 .login h1 { font-size:18px; text-align:center; }
@@ -416,7 +416,7 @@ header.top .bar { align-items:center; }
  header.top .brand,header.top .brand.admin {
   position:fixed;left:0;top:0;z-index:15;width:244px;min-width:244px;height:165px;
   padding:22px 15px;background-color:#061e50;border-radius:0;box-shadow:none;
-  background-image:url('/assets/bizhubpay-logo.svg');background-size:calc(100% - 28px) auto;
+  background-image:url('/assets/bizhubpay-original-transparent.png');background-size:calc(100% - 28px) auto;
   background-position:center 38px;background-repeat:no-repeat;
  }
  header.top nav.tabs { top:165px;width:244px;padding-top:20px;background:linear-gradient(180deg,#061e50,#062d6b 75%,#041b4a); }
@@ -442,3 +442,288 @@ header.top .bar { align-items:center; }
 .merchant-solution-icon { font-size:27px;line-height:1.3; }
 @media(max-width:800px) { .merchant-solutions-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:420px) { .merchant-solution-card { min-height:112px;padding:12px; } .merchant-solution-card strong { font-size:14px; } }
+
+/* MASTER 1000038458.png — final structural brand and dashboard layout */
+@media(min-width:1080px) {
+ header.top .brand,header.top .brand.admin {
+  background:#061e50 url('/assets/bizhubpay-original-transparent.png') center 4px / 100% 156px no-repeat !important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;
+  height:174px!important;padding:0!important;
+ }
+ header.top nav.tabs { top:174px!important; }
+ header.top .bar { margin-left:244px; }
+}
+@media(max-width:1079px) {
+ header.top .brand,header.top .brand.admin {
+  background:transparent url('/assets/bizhubpay-original-transparent.png') center / contain no-repeat!important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;filter:none!important;padding:0!important;
+  width:185px;min-width:185px;height:92px;
+ }
+}
+@media(max-width:520px) {
+ header.top .brand,header.top .brand.admin { width:155px;min-width:155px;height:77px; }
+}
+.merchant-welcome { display:flex;align-items:center;justify-content:space-between; }
+.merchant-welcome h1 { font-size:24px; }
+.merchant-breakdown { min-width:0; }
+.merchant-breakdown-body { display:grid;grid-template-columns:170px 1fr;gap:20px;align-items:center; }
+.merchant-donut { width:170px;height:170px;border-radius:50%;display:grid;place-items:center; }
+.merchant-donut-inner { width:105px;height:105px;border-radius:50%;background:var(--surface);display:flex;align-items:center;justify-content:center;flex-direction:column;color:var(--fg); }
+.merchant-donut-inner strong { font-size:23px; }
+.merchant-donut-inner span { font-size:11px;color:var(--muted); }
+.merchant-legend { display:grid;gap:14px; }
+.merchant-legend-row { display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:9px;align-items:center;font-size:13px; }
+.merchant-legend-dot { width:12px;height:12px;border-radius:50%;background:#0876f4; }
+.merchant-legend-dot.card { background:#ff970f;border:0;padding:0;box-shadow:none; }
+.merchant-legend-dot.bank_transfer { background:#20c879; }
+@media(max-width:1280px) { .merchant-breakdown-body { grid-template-columns:130px 1fr;gap:12px; } .merchant-donut { width:130px;height:130px; } .merchant-donut-inner { width:83px;height:83px; } }
+@media(max-width:650px) { .merchant-breakdown-body { grid-template-columns:115px 1fr;gap:10px; } .merchant-donut { width:115px;height:115px; } .merchant-donut-inner { width:72px;height:72px; } .merchant-legend-row { font-size:11px; } }
+
+/* Mobile header: left menu, centered brand, right signed-in user. */
+@media(max-width:1079px) {
+ header.top .bar { position:relative;display:grid;grid-template-columns:90px minmax(0,1fr) 110px;min-height:105px;padding:10px 12px;gap:0;align-items:center; }
+ header.top .mobile-menu-btn { grid-column:1;grid-row:1;justify-self:start;z-index:2;white-space:nowrap; }
+ header.top .brand,header.top .brand.admin { grid-column:2;grid-row:1;justify-self:center;width:155px;min-width:0;height:88px;margin:0; }
+ header.top .who { display:block!important;grid-column:3;grid-row:1;text-align:right;font-size:12px;color:#fff;overflow:hidden; }
+ header.top .who b { display:block;color:#fff;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+ header.top .bar>.btn { grid-column:3;grid-row:2;justify-self:end;font-size:11px;padding:5px 7px; }
+ header.top .shop { display:none; }
+ header.top .mode-switch,header.top .pill.test { grid-column:1 / 3;grid-row:2;justify-self:start; }
+ header.top nav.tabs { top:0; }
+}
+@media(max-width:520px) {
+ header.top .bar { grid-template-columns:78px minmax(0,1fr) 88px;min-height:105px;padding:8px; }
+ header.top .brand,header.top .brand.admin { width:125px;height:80px; }
+ header.top .mobile-menu-btn { padding:8px 9px;font-size:12px; }
+ header.top .who { font-size:10px; }
+ header.top .who b { font-size:11px; }
+}
+
+/* Approved white-to-sky-blue graphic header, keeping the original PNG unchanged. */
+@media(max-width:1079px) {
+ header.top {
+  background:
+   radial-gradient(ellipse 42% 80% at 81% 4%,#9ad9ff90 0%,transparent 100%),
+   linear-gradient(153deg,transparent 0 35%,#8acfff88 35.5% 39%,transparent 39.5% 100%),
+   linear-gradient(18deg,transparent 0 63%,#4ba9ed33 63.5% 70%,transparent 70.5% 100%),
+   linear-gradient(110deg,#f7fcff 0%,#edf9ff 46%,#9ad8ff 100%)!important;
+  border-bottom:4px solid #ff8a0a!important;
+ }
+ header.top .bar { grid-template-columns:90px minmax(0,1fr) 110px!important;grid-template-rows:minmax(100px,auto)!important;min-height:124px!important; }
+ header.top .mobile-menu-btn { grid-column:1!important;grid-row:1!important; }
+ header.top .brand,header.top .brand.admin {
+  grid-column:2!important;grid-row:1!important;justify-self:center!important;
+  width:175px!important;min-width:0!important;height:114px!important;
+  background:transparent url('/assets/bizhubpay-original-transparent.png') center / contain no-repeat!important;
+ }
+ header.top .who { grid-column:3!important;grid-row:1!important;display:block!important;text-align:right!important;color:#092b62!important; }
+ header.top .who b { color:#07265d!important; }
+ header.top .shop { display:none!important; }
+ header.top .spacer { display:none!important; }
+ header.top .nav-logout { margin-top:18px!important;border-top:1px solid #ffffff3b!important; }
+}
+@media(max-width:520px) {
+ header.top .bar { grid-template-columns:74px minmax(0,1fr) 83px!important;min-height:110px!important;padding:7px!important; }
+ header.top .brand,header.top .brand.admin { width:145px!important;height:105px!important; }
+ header.top .mobile-menu-btn { padding:9px 10px!important; }
+}
+@media(min-width:1080px) {
+ header.top nav.tabs .nav-logout { margin-top:auto;border-top:1px solid #ffffff33; }
+}
+header.top nav.tabs .nav-logout { color:#fff;font-weight:750; }
+
+/* Softer premium header: curved light washes replace rigid diagonal stripes. */
+@media(max-width:1079px) {
+ header.top {
+  background:
+   radial-gradient(ellipse 75% 115% at -8% 110%,rgba(45,158,238,.29) 0%,rgba(98,192,250,.15) 45%,transparent 71%),
+   radial-gradient(ellipse 58% 95% at 110% 0%,rgba(48,164,239,.30) 0%,rgba(102,196,250,.12) 53%,transparent 83%),
+   radial-gradient(ellipse 62% 46% at 50% 118%,rgba(255,255,255,.96) 0%,rgba(231,248,255,.35) 67%,transparent 100%),
+   linear-gradient(112deg,#f8fdff 0%,#eefaff 48%,#d7f0ff 100%)!important;
+  border-bottom:4px solid #ff8a0a!important;
+ }
+}
+
+/* Approved compact mobile MASTER header: 20% smaller logo and height, flowing waves. */
+@media(max-width:1079px) {
+ header.top {
+  position:relative;isolation:isolate;
+  background:
+    radial-gradient(ellipse 30% 100% at 85% 8%,rgba(42,169,244,.27),transparent 90%),
+    linear-gradient(115deg,#fafdff 0%,#f1faff 49%,#bde8ff 100%)!important;
+  border-bottom:4px solid #ff8500!important;
+ }
+ header.top::before {
+  content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(ellipse 70% 45% at 7% 116%,#0059c9 0%,#038fee 47%,transparent 49%),
+    radial-gradient(ellipse 69% 37% at 23% 123%,#00b6f0 0%,#9de9ff 51%,transparent 53%),
+    radial-gradient(ellipse 55% 42% at 99% 120%,#003da0 0%,#007fe3 51%,transparent 53%),
+    radial-gradient(ellipse 56% 31% at 81% 117%,#ff8909 0%,#ffb53d 38%,transparent 42%),
+    radial-gradient(ellipse 54% 24% at 53% 119%,rgba(255,255,255,.95) 0%,transparent 76%);
+ }
+ header.top .bar {position:relative;z-index:1;grid-template-columns:90px minmax(0,1fr) 110px!important;grid-template-rows:96px!important;min-height:96px!important;padding:3px 12px!important;}
+ header.top .brand,header.top .brand.admin {width:140px!important;height:91px!important;min-width:0!important;}
+ header.top .mobile-menu-btn {align-self:center;}
+ header.top .who {align-self:center;}
+}
+@media(max-width:520px) {
+ header.top .bar {grid-template-columns:74px minmax(0,1fr) 83px!important;grid-template-rows:88px!important;min-height:88px!important;padding:2px 7px!important;}
+ header.top .brand,header.top .brand.admin {width:116px!important;height:84px!important;}
+ header.top .mobile-menu-btn {padding:8px 9px!important;font-size:12px!important;}
+}
+
+/* FINAL: independent SVG artwork layer, no stacked CSS approximations. */
+@media(max-width:1079px) {
+ header.top {
+  background:#edf9ff url('/assets/bizhubpay-header-waves.svg') center bottom / 100% 100% no-repeat!important;
+  border-bottom:4px solid #ff8500!important;
+ }
+ header.top::before { content:none!important;display:none!important; }
+ header.top .bar { position:relative;z-index:1; }
+ header.top .brand,header.top .brand.admin {
+  background:transparent url('/assets/bizhubpay-original-transparent.png') center / contain no-repeat!important;
+ }
+}
+
+/* Fintech dashboard details matching approved visual reference. */
+.merchant-kpis .tile {position:relative;overflow:hidden;isolation:isolate;padding-right:66px;}
+.merchant-kpis .tile::after {position:absolute;right:16px;top:50%;transform:translateY(-50%);font-size:42px;line-height:1;opacity:.7;pointer-events:none;}
+.merchant-kpis .tile:nth-child(1)::after {content:"▣";color:#b8edff;text-shadow:0 0 15px #a8eaff;}
+.merchant-kpis .tile:nth-child(2)::after {content:"▥";color:#0b9df2;}
+.merchant-kpis .tile:nth-child(3)::after {content:"⌕";color:#ff8b0a;font-size:60px;}
+.merchant-kpis .tile:nth-child(4)::after {content:"◷";color:#178de4;font-size:54px;}
+.merchant-kpis .tile:first-child {background:linear-gradient(145deg,#0555c7 0%,#07318f 55%,#069ce9 100%);border-color:#168ef3;}
+.merchant-kpis .tile:first-child::before {content:"";position:absolute;inset:auto -20% -55% 10%;height:100%;border-radius:50%;background:linear-gradient(25deg,#00bbff55,#ff971833,transparent);transform:rotate(-10deg);z-index:-1;}
+.merchant-kpis .tile:not(:first-child) {background:linear-gradient(145deg,#fff 55%,#eef8ff 100%);}
+.merchant-kpis .tile:nth-child(3) {border-color:#ff8a0a;}
+.merchant-welcome h1::before {content:"↗";display:inline-block;margin-right:9px;color:#ff8b0b;font-weight:900;}
+.merchant-quick,.merchant-recent,.merchant-breakdown {box-shadow:0 9px 24px #0b4d9416;}
+@media(max-width:650px) {.merchant-kpis .tile {padding-right:39px;}.merchant-kpis .tile::after {font-size:29px;right:9px;}.merchant-kpis .tile:nth-child(3)::after,.merchant-kpis .tile:nth-child(4)::after {font-size:34px;}}
+
+/* KPI visual master: actual vector assets, not placeholder glyphs. */
+.merchant-kpis .tile {position:relative;isolation:isolate;overflow:hidden;padding-right:78px;min-height:160px;}
+.merchant-kpis .tile::after {content:""!important;display:block;position:absolute;right:12px;top:50%;width:70px;height:70px;transform:translateY(-50%);opacity:1;background:transparent center/contain no-repeat;pointer-events:none;text-shadow:none!important;}
+.merchant-kpis .tile:nth-child(1)::after {background-image:url('/assets/bizhubpay-kpi-today.svg');}
+.merchant-kpis .tile:nth-child(2)::after {background-image:url('/assets/bizhubpay-kpi-period.svg');}
+.merchant-kpis .tile:nth-child(3)::after {background-image:url('/assets/bizhubpay-kpi-review.svg');}
+.merchant-kpis .tile:nth-child(4)::after {background-image:url('/assets/bizhubpay-kpi-pending.svg');}
+.merchant-kpis .tile:first-child {background:linear-gradient(128deg,#0753c4,#05318b 57%,#008df3);border:1px solid #168ef3;}
+.merchant-kpis .tile:first-child::before {content:"";position:absolute;bottom:-80%;left:4%;width:125%;height:130%;border-radius:50%;background:linear-gradient(28deg,#0089ec66,#14d6ff55,#ff9d1344);z-index:-1;}
+.merchant-kpis .tile:nth-child(3) {border:1px solid #ff920b;}
+.merchant-kpis .tile:not(:first-child) {background:linear-gradient(145deg,#fff 55%,#eff8ff);}
+.merchant-kpis .tile .label,.merchant-kpis .tile .value,.merchant-kpis .tile .sub {position:relative;z-index:1;}
+@media(max-width:650px) {.merchant-kpis .tile {padding:15px 47px 15px 14px;min-height:140px;}.merchant-kpis .tile::after {width:39px;height:39px;right:5px;}}
+
+/* KPI polish v2: depth, subtle illuminated accents; no layout or data changes. */
+.merchant-kpis .tile {box-shadow:0 8px 24px rgba(7,65,143,.12),inset 0 1px 0 #ffffff85;transition:box-shadow .2s ease;}
+.merchant-kpis .tile:first-child {background:radial-gradient(ellipse 70% 65% at 82% 95%,#09bbff9c,transparent 80%),linear-gradient(130deg,#065ccf 0%,#062e91 58%,#0075e1 100%);}
+.merchant-kpis .tile:first-child::before {background:linear-gradient(24deg,#008ce9aa,#00c9ff66 35%,#ff9b1238 68%,transparent 85%);bottom:-92%;transform:rotate(-15deg);}
+.merchant-kpis .tile:first-child::after {filter:drop-shadow(0 0 7px #a9eeffb0);}
+.merchant-kpis .tile:nth-child(2)::after {width:76px;height:76px;}
+.merchant-kpis .tile:nth-child(3) {box-shadow:0 8px 24px #ff9b1014,inset 0 0 0 1px #ffad2340;}
+.merchant-kpis .tile:nth-child(3)::after {filter:drop-shadow(0 3px 5px #ff950040);}
+.merchant-kpis .tile:nth-child(4)::after {filter:drop-shadow(-4px 3px 5px #00a2e833);}
+@media(max-width:650px) {.merchant-kpis .tile:nth-child(2)::after {width:44px;height:44px;}}
+
+/* Drawer brand wordmark and accessible personal profile shortcut. */
+header.top nav.tabs .nav-brand-wordmark {display:flex;justify-content:center;align-items:baseline;gap:2px;padding:7px 5px 17px;margin:0 0 8px;border-bottom:1px solid #ffffff30;font-family:Arial,sans-serif;font-weight:900;font-size:25px;letter-spacing:-1px;white-space:nowrap;color:#fff;text-shadow:0 2px 6px #001c5a;}
+header.top nav.tabs .nav-brand-wordmark strong {color:#ff990e;font-weight:900;}
+header.top .profile-shortcut {background:transparent;border:0;cursor:pointer;padding:7px 8px;border-radius:10px;min-width:0;text-align:right;font:inherit;}
+header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {background:#ffffff3d;outline:2px solid #138cef;outline-offset:1px;}
+@media(max-width:1079px) {header.top nav.tabs .nav-brand-wordmark {font-size:27px;}header.top .profile-shortcut {grid-column:3!important;grid-row:1!important;justify-self:end;}}
+@media(min-width:1080px) {header.top nav.tabs .nav-brand-wordmark {display:none;}header.top .profile-shortcut {color:#08275a!important;}}
+
+/* Compact drawer header: reduce original 92px top gap by ~40%. */
+@media(max-width:1079px) {
+ header.top nav.tabs {padding-top:55px!important;}
+ header.top nav.tabs .nav-brand-wordmark {padding-top:0!important;padding-bottom:12px!important;margin-bottom:6px!important;}
+}
+
+/* Drawer refinement: shift wordmark/navigation another 20% upward. */
+@media(max-width:1079px) {
+ header.top nav.tabs {padding-top:44px!important;}
+ header.top nav.tabs .nav-brand-wordmark {padding-bottom:10px!important;margin-bottom:4px!important;}
+}
+
+/* Unified BIZHUB PAY login — original logo and separate fintech artwork. */
+.login-scene {min-height:100dvh;display:grid;place-items:center;padding:30px 16px;background:#dcefff url('/assets/bizhubpay-login-bg.svg') center/cover no-repeat;}
+.login-shell {width:min(100%,650px);}
+.login-scene .unified-login {display:grid;gap:16px;padding:35px clamp(20px,5vw,50px);border:1px solid #d7e7f8;border-radius:32px;background:#ffffffef;box-shadow:0 25px 70px #0737773d;backdrop-filter:blur(10px);}
+.login-brand {width:220px;height:160px;justify-self:center;background:url('/assets/bizhubpay-original-transparent.png') center/contain no-repeat;}
+.login-scene .unified-login h1 {font-size:clamp(23px,3.3vw,33px);text-align:center;color:#062963;margin:0;}
+.login-scene .login-subtitle {text-align:center;color:#526985;margin:0;}
+.login-roles {display:flex;justify-content:center;gap:9px;flex-wrap:wrap;}
+.login-roles span {border-radius:24px;background:#eef6ff;color:#0a3779;padding:7px 12px;font-weight:700;font-size:13px;}
+.login-roles span:nth-child(2) {color:#a95300;background:#fff3e2;}
+.login-scene .unified-login input {min-height:48px;border-radius:12px;}
+.login-scene .login-submit {width:100%;min-height:52px;background:linear-gradient(100deg,#04a9f6,#0644b2);font-size:17px;border-radius:13px;color:#fff;}
+@media(max-width:520px) {.login-scene {padding:18px 12px;}.login-scene .unified-login {padding:24px 18px;border-radius:23px;gap:13px;}.login-brand {width:180px;height:120px;}}
+
+/* Login final: prevent legacy pseudo-logo, constrain card and maintain one original logo. */
+.login-scene .unified-login::before,.login-scene .unified-login::after {content:none!important;display:none!important;}
+.login-scene .unified-login {max-width:none!important;width:100%!important;margin:0!important;position:relative;box-sizing:border-box;min-height:0;}
+.login-scene .login-brand {display:block!important;flex:none!important;width:205px;height:135px;margin:0 auto!important;background-image:url('/assets/bizhubpay-original-transparent.png')!important;background-position:center!important;background-size:contain!important;background-repeat:no-repeat!important;}
+.login-scene .login-roles {display:none!important;}
+.login-scene {background:#dcefff url('/assets/bizhubpay-login-bg.svg') center/cover no-repeat!important;min-height:100dvh;}
+@media(max-width:520px) {
+ .login-scene {padding:18px 12px!important;align-items:center;}
+ .login-scene .unified-login {margin:0!important;padding:24px 18px!important;}
+ .login-scene .login-brand {width:175px!important;height:116px!important;}
+}
+
+/* Login MASTER: one original logo above the floating card; preserve real form controls. */
+.login-scene {background:#b9e5ff url('/assets/bizhubpay-login-bg.svg') center center / cover no-repeat!important;padding:32px 18px!important;}
+.login-shell {width:min(100%,620px)!important;display:flex;flex-direction:column;align-items:center;gap:16px;}
+.login-scene .login-brand {display:block!important;width:260px!important;height:170px!important;flex:none;background:url('/assets/bizhubpay-original-transparent.png') center/contain no-repeat!important;margin:0 auto!important;filter:drop-shadow(0 6px 12px #fff8);}
+.login-scene .unified-login {width:100%!important;padding:34px clamp(22px,5vw,48px)!important;background:linear-gradient(145deg,#fffffff5,#f9fcffff)!important;border:1px solid #ffffff!important;border-radius:32px!important;box-shadow:0 24px 55px #004b9b45!important;gap:19px!important;}
+.login-scene .unified-login h1 {font-size:clamp(24px,3.5vw,34px)!important;letter-spacing:-.4px;}
+.login-scene .login-subtitle {font-size:15px!important;color:#385777!important;}
+.login-scene .unified-login input {background:#eaf2ff!important;border:1px solid #cbdcf1!important;min-height:52px!important;padding:12px 16px!important;}
+.login-scene .login-submit {background:linear-gradient(115deg,#00b7fb,#0043ba)!important;min-height:55px!important;box-shadow:0 8px 20px #0061d04d!important;}
+@media(max-width:520px) {.login-scene {padding:20px 12px!important;}.login-shell {gap:10px!important;}.login-scene .login-brand {width:195px!important;height:118px!important;}.login-scene .unified-login {padding:23px 19px!important;gap:14px!important;border-radius:25px!important;}}
+
+/* Compact login card: 40% narrower than the prior 620px layout, without shrinking form readability. */
+.login-scene .login-shell {width:min(100%,372px)!important;max-width:372px!important;}
+.login-scene .unified-login {padding:25px 22px!important;gap:12px!important;border-radius:24px!important;}
+.login-scene .unified-login h1 {font-size:clamp(19px,4vw,25px)!important;line-height:1.3;}
+.login-scene .login-subtitle {font-size:13px!important;line-height:1.45;}
+.login-scene .unified-login input {min-height:44px!important;}
+.login-scene .login-submit {min-height:46px!important;font-size:15px!important;}
+.login-scene .login-brand {width:190px!important;height:120px!important;}
+@media(max-width:520px) {
+ .login-scene .login-shell {width:min(100%,372px)!important;}
+ .login-scene .unified-login {padding:21px 18px!important;gap:11px!important;}
+ .login-scene .login-brand {width:165px!important;height:104px!important;}
+}
+
+/* Master login artwork: WebP first; legacy SVG stays as fallback until image asset is uploaded. */
+.login-scene {
+ background-color:#b9e5ff!important;
+ background-image:url('/assets/bizhubpay-login-background.webp'),url('/assets/bizhubpay-login-bg.svg')!important;
+ background-position:center center,center center!important;
+ background-size:cover,cover!important;
+ background-repeat:no-repeat,no-repeat!important;
+}
+
+/* Approved login polish: 15% larger card/logo, glossy centered sign-in CTA. */
+.login-scene .login-shell {width:min(100%,428px)!important;max-width:428px!important;}
+.login-scene .login-brand {width:219px!important;height:138px!important;}
+.login-scene .unified-login {padding:28px 25px!important;gap:14px!important;}
+.login-scene .login-submit {
+ display:flex!important;align-items:center!important;justify-content:center!important;gap:13px!important;
+ width:100%!important;min-height:55px!important;border:1px solid #2bd5ff!important;border-radius:18px!important;
+ background:linear-gradient(180deg,#08c9fc 0%,#007de9 46%,#0040b7 100%)!important;
+ box-shadow:inset 0 2px 1px #ffffffaa,0 9px 19px #0058b05c!important;
+ color:#fff!important;font-size:19px!important;font-weight:800!important;text-align:center!important;
+ text-shadow:0 1px 2px #00377a80;
+}
+.login-scene .login-submit-icon {display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border:2px solid #fff;border-radius:6px;font-size:23px;font-weight:900;line-height:1;}
+.login-scene .login-submit:hover {filter:brightness(1.07);}
+.login-scene .login-submit:focus-visible {outline:3px solid #ff9d18;outline-offset:3px;}
+@media(max-width:520px) {
+ .login-scene .login-shell {width:min(100%,428px)!important;}
+ .login-scene .login-brand {width:190px!important;height:120px!important;}
+ .login-scene .unified-login {padding:24px 20px!important;}
+ .login-scene .login-submit {min-height:52px!important;font-size:18px!important;}
+}

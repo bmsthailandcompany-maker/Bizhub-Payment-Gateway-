@@ -69,6 +69,40 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
 
   app.get("/dashboard", async (_req, reply) => pageHeaders(reply).send(appShell("Bizhub Dashboard", "dashboard.js")));
 
+  // Unified staff login for admin, owner and merchant employees.
+  app.post("/dashboard/api/unified-login", async (req, reply) => {
+    if (!csrfOk(req)) throw new PaymentError(403, "forbidden", "Missing dashboard header");
+    const { email, password } = z.object({email:z.string().email().max(200),password:z.string().min(1).max(200)}).strict().parse(req.body);
+    const key = loginKey(req,email);
+    if (limiter.blocked(key)) throw new PaymentError(429,"too_many_attempts","เข้าสู่ระบบผิดหลายครั้ง กรุณารอ 15 นาทีแล้วลองใหม่");
+    const admin = users.findByEmail("admin",email);
+    const merchant = users.findByEmail("merchant",email);
+    // Verify both scopes to avoid revealing which kind of account exists.
+    const [adminOk, merchantOk] = await Promise.all([
+      verifyPassword(password,admin?.password_hash ?? DUMMY_HASH),
+      verifyPassword(password,merchant?.password_hash ?? DUMMY_HASH)
+    ]);
+    if (admin && adminOk && admin.active === 1) {
+      limiter.succeed(key);
+      if (admin.totp_enabled === 1) return {mfa_required:true,scope:"admin",mfa_token:sessions.createPending("admin",admin.id)};
+      const token = sessions.create({kind:"admin",userId:admin.id});
+      users.touchLogin("admin",admin.id);
+      setSessionCookie(req,reply,"bizhub_admin","/admin/console",token);
+      return {ok:true,scope:"admin"};
+    }
+    const shop = merchant ? merchants.get(merchant.merchant_id!) : undefined;
+    if (merchant && merchantOk && merchant.active === 1 && shop?.active === 1) {
+      limiter.succeed(key);
+      if (merchant.totp_enabled === 1) return {mfa_required:true,scope:"merchant",mfa_token:sessions.createPending("merchant",merchant.id,merchant.merchant_id!)};
+      const token = sessions.create({kind:"merchant",merchantId:merchant.merchant_id!,userId:merchant.id,livemode:true});
+      users.touchLogin("merchant",merchant.id);
+      setSessionCookie(req,reply,COOKIE,COOKIE_PATH,token);
+      return {ok:true,scope:"merchant"};
+    }
+    limiter.fail(key);
+    throw new PaymentError(401,"unauthorized","อีเมลหรือรหัสผ่านไม่ถูกต้อง");
+  });
+
   app.post("/dashboard/api/login", async (req, reply) => {
     if (!csrfOk(req)) throw new PaymentError(403, "forbidden", "Missing dashboard header");
     const body = loginSchema.parse(req.body);
@@ -204,6 +238,36 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       roles: Object.fromEntries(Object.entries(MERCHANT_ROLES).map(([k, v]) => [k, { label: v.label, permissions: v.permissions }])),
       webhook_secret: req.permissions!.includes("webhooks.secret") ? req.merchant!.webhook_secret : null,
     }));
+
+    api.patch("/dashboard/api/profile", async (req) => {
+      if (req.actor!.kind !== "merchant_user") throw new PaymentError(400, "not_a_user", "บัญชีนี้ไม่สามารถแก้ไขโปรไฟล์ได้");
+      const input = z.object({ name: z.string().trim().min(1).max(120) }).strict().parse(req.body);
+      const updated = users.update("merchant", req.actor!.id!, { name: input.name });
+      log(req, "user.update", updated.id, { field: "name", self: true });
+      return { name: updated.name };
+    });
+
+    api.post("/dashboard/api/keys/live/rotate", async (req) => {
+      if (req.actor!.kind !== "merchant_user" || req.actor!.role !== "owner") {
+        throw new PaymentError(403, "forbidden", "เฉพาะบัญชีเจ้าของร้านเท่านั้น");
+      }
+      const { password, confirm } = z.object({
+        password: z.string().min(1).max(200),
+        confirm: z.literal(true),
+      }).strict().parse(req.body);
+      const key = loginKey(req, "rotate-live:" + req.actor!.id);
+      if (limiter.blocked(key)) throw new PaymentError(429, "too_many_attempts", "ลองใหม่ภายหลัง");
+      const owner = users.get("merchant", req.actor!.id!);
+      const ok = await verifyPassword(password, owner?.password_hash ?? DUMMY_HASH);
+      if (!owner || owner.active !== 1 || !ok) {
+        limiter.fail(key);
+        throw new PaymentError(403, "invalid_password", "รหัสผ่านไม่ถูกต้อง");
+      }
+      limiter.succeed(key);
+      const secret = merchants.rotateLiveKey(req.merchant!.id);
+      log(req, "merchant.live_key_rotated", req.merchant!.id);
+      return { live_secret_key: secret };
+    });
 
     api.post("/dashboard/api/password", async (req) => {
       if (req.actor!.kind !== "merchant_user") throw new PaymentError(400, "not_a_user", "เข้าด้วย Secret key ไม่มีรหัสผ่านให้เปลี่ยน");
@@ -367,6 +431,37 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
     const connectSchema = z.object({
       label: z.string().min(1).max(120),
       biller_id: z.string().refine(isValidBillerId, "Biller ID ต้องเป็นตัวเลข 15 หลัก").nullable().optional(),
+    });
+
+    // Sandbox-only Omise connectivity check. Never returns account data or credentials.
+    api.get("/dashboard/api/providers/omise/test", { preHandler: need("settings.view") }, async (req) => {
+      const key = process.env.OMISE_TEST_SECRET_KEY;
+      if (!key || !key.startsWith("skey_test_")) return { configured: false, connected: false, mode: "test" };
+      try {
+        const response = await fetch("https://api.omise.co/account", {
+          headers: { Authorization: "Basic " + Buffer.from(key + ":").toString("base64") },
+          signal: AbortSignal.timeout(8000),
+        });
+        return { configured: true, connected: response.ok, mode: "test", status: response.ok ? "verified" : "connection_failed" };
+      } catch {
+        return { configured: true, connected: false, mode: "test", status: "unreachable" };
+      }
+    });
+
+    // Phase 2 readiness: provider-neutral integration status. Never imply a live bank connection exists.
+    api.get("/dashboard/api/payment-integration", { preHandler: need("settings.view") }, async (req) => {
+      const live = bank.active(req.merchant!.id, true);
+      const test = bank.active(req.merchant!.id, false);
+      return {
+        settlement: "merchant_direct",
+        signup_ready: true,
+        kyc_status: req.merchant!.kyc_status,
+        test_connector_configured: Boolean(test),
+        live_connector_configured: Boolean(live),
+        live_auto_verification_ready: Boolean(live && req.merchant!.kyc_status === "approved"),
+        provider_activation: "requires_provider_approval",
+        supported_event_contract: ["trans_ref", "amount", "paid_at", "ref1"],
+      };
     });
 
     api.get("/dashboard/api/bank", { preHandler: need("settings.view") }, async (req) => {

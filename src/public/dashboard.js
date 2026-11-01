@@ -12,13 +12,13 @@
   function showLogin() {
     S.me = null;
     UI.loginView(root, {
-      title: "BIZHUB PAY Merchant Portal",
-      subtitle: "เข้าสู่ระบบด้วยบัญชีพนักงานของร้าน",
-      altLabel: "เข้าด้วย Secret key (เจ้าของร้าน)",
-      altField: { name: "secret_key", label: "Secret key", placeholder: "sk_live_... หรือ sk_test_...", hint: "ใช้ sk_test_ เพื่อดูข้อมูลทดสอบ หรือ sk_live_ เพื่อดูข้อมูลจริง ระบบไม่เก็บ key ไว้ในเบราว์เซอร์" },
       onSubmit: async (body) => {
-        const r = await api("/login", { method: "POST", body, allow401: true });
-        if (r.mfa_required) return UI.mfaPrompt(root, { api, token: r.mfa_token, onDone: boot, onBack: showLogin });
+        const r = await api("/unified-login",{method:"POST",body,allow401:true});
+        if (r.mfa_required) {
+          const mfaApi = r.scope === "admin" ? makeApi("/admin/console/api",showLogin) : api;
+          return UI.mfaPrompt(root,{api:mfaApi,token:r.mfa_token,onDone:()=>r.scope==="admin" ? window.location.assign("/admin/console") : boot(),onBack:showLogin});
+        }
+        if (r.scope === "admin") {window.location.assign("/admin/console");return;}
         await boot();
       },
     });
@@ -39,21 +39,16 @@
   function renderShell() {
     const m = S.me.merchant;
     const review = S.summary?.awaiting_review || 0;
-    const modeSwitch = S.me.user.kind === "merchant_user"
-      ? h("span", { class: "mode-switch", role: "group", "aria-label": "โหมดข้อมูล" },
-        [[true, "ข้อมูลจริง"], [false, "ทดสอบ"]].map(([live, label]) => h("button", { type: "button", "aria-pressed": String(S.me.livemode === live), onclick: async () => {
-          if (S.me.livemode === live) return;
-          await api("/mode", { method: "POST", body: { livemode: live } });
-          S.me.livemode = live; S.summary = null; S.list = []; go(S.tab);
-        } }, label)))
-      : h("span", { class: "pill " + (S.me.livemode ? "live" : "test") }, S.me.livemode ? "ใช้งานจริง" : "โหมดทดสอบ");
+    const modeSwitch = S.me.livemode ? null :
+      h("span",{class:"pill test",role:"status"},"โหมดทดสอบ — ยังไม่ใช่ข้อมูลจริง");
     main = UI.shell(root, {
-      brand: "Bizhub", subtitle: m.name,
+      brand: "BIZHUB PAY", subtitle: null,
       extra: modeSwitch,
-      user: S.me.user,
+      user: { ...S.me.user, name: S.me.user.name || m.name, role_label: S.me.user.role_label || "บัญชีร้านค้า" },
       tabs: TABS.filter((t) => (!t.perm || can(t.perm)) && (!t.when || t.when())).map((t) => ({ ...t, badge: t.id === "payments" && review ? review : null })),
       current: S.tab,
       onTab: go,
+      onProfile: () => go("settings"),
       onLogout: async () => { await api("/logout", { method: "POST" }).catch(() => {}); showLogin(); },
     });
   }
@@ -107,11 +102,31 @@
         can("payments.view")?shortcut("▤","รายการชำระเงิน",()=>go("payments")):null,
         can("settings.view")?shortcut("▣","บัญชีธนาคาร",()=>go("bank")):null,
         can("payments.export")?shortcut("↧","ส่งออกรายงาน",()=>UI.exportDialog(api,"/payments/export")):null));
+    const paid = recent.data.filter(p => p.status === "succeeded");
+    const methodCounts = { promptpay:0, card:0, bank_transfer:0 };
+    for (const p of paid) if (Object.prototype.hasOwnProperty.call(methodCounts,p.method)) methodCounts[p.method]++;
+    const methodTotal = Object.values(methodCounts).reduce((a,b)=>a+b,0);
+    const methodPercent = key => methodTotal ? Math.round(methodCounts[key]*100/methodTotal) : 0;
+    const methods = [["promptpay","PromptPay"],["card","บัตรเครดิต / เดบิต"],["bank_transfer","โอนเงินผ่านธนาคาร"]];
+    const breakdown = h("div",{class:"card merchant-breakdown"},
+      h("h2",{},"สัดส่วนช่องทางชำระเงิน (รายการล่าสุด)"),
+      h("div",{class:"merchant-breakdown-body"},
+        h("div",{class:"merchant-donut",role:"img","aria-label":"สัดส่วนการชำระเงินจากรายการสำเร็จล่าสุด"},
+          h("div",{class:"merchant-donut-inner"},h("strong",{},String(methodTotal)),h("span",{},"รายการสำเร็จ"))),
+        h("div",{class:"merchant-legend"},methods.map(([key,label])=>
+          h("div",{class:"merchant-legend-row"},
+            h("span",{class:"merchant-legend-dot "+key}),h("span",{},label),
+            h("strong",{},methodPercent(key)+"%"))))));
+    const donut = breakdown.querySelector(".merchant-donut");
+    const p1 = methodPercent("promptpay"), p2 = methodPercent("card");
+    donut.style.background = methodTotal
+      ? `conic-gradient(#0876f4 0% ${p1}%,#ff970f ${p1}% ${p1+p2}%,#20c879 ${p1+p2}% 100%)`
+      : "conic-gradient(#dce7f5 0% 100%)";
     main.replaceChildren(
       h("div",{class:"page-head merchant-welcome"},
         h("div",{},h("h1",{},"ภาพรวมธุรกิจ"),h("p",{class:"muted m0"},"จัดการรับชำระเงินและติดตามยอดขายของ "+S.me.merchant.name)),
         can("payments.export")?h("button",{class:"btn",type:"button",onclick:()=>UI.exportDialog(api,"/payments/export")},"ส่งออก Excel/CSV"):null),
-      ...(kycBanner() ? [kycBanner()] : []),
+      ...(() => { const banner = kycBanner(); return banner ? [banner] : []; })(),
       h("div",{class:"grid tiles merchant-kpis"},
         tile("ยอดรับชำระวันนี้",baht(summary.today.amount),summary.today.count+" รายการ"),
         tile("ยอดรับชำระ "+summary.period.days+" วัน",baht(summary.period.amount),summary.period.count+" รายการ"),
@@ -127,8 +142,8 @@
       h("div",{class:"merchant-overview-row"},
         h("div",{class:"card merchant-recent"},h("div",{class:"row"},h("h2",{},"รายการธุรกรรมล่าสุด"),h("span",{class:"spacer"}),h("button",{class:"link",type:"button",onclick:()=>go("payments")},"ดูทั้งหมด →")),
           recent.data.length?UI.paymentTable(recent.data,{onOpen:openPayment}):h("div",{class:"empty"},"ยังไม่มีรายการชำระเงิน")),
-        h("div",{class:"card merchant-recent"},h("h2",{},"รายการที่รอตรวจสอบ"),
-          review.data.length?UI.paymentTable(review.data,{onOpen:openPayment}):h("div",{class:"empty"},"ไม่มีรายการที่ต้องตรวจสอบ ✓"))));
+        breakdown),
+      review.data.length ? h("div",{class:"card merchant-recent"},h("h2",{},"รายการที่รอตรวจสอบ"),UI.paymentTable(review.data,{onOpen:openPayment})) : null);
   }
 
   // ---------- payments ----------
@@ -280,6 +295,33 @@
     const c = res.connection;
     const manage = can("bank.manage");
     const cards = [noticeCard()];
+    const integrationBox = h("div",{class:"card grid"},
+      h("h2",{class:"m0"},"เชื่อมต่อรับชำระอัตโนมัติ (Phase 2)"),
+      h("p",{class:"small muted"},"เงินเข้าบัญชีร้านโดยตรง • ไม่ต้องแนบสลิป เมื่อได้รับการยืนยันธุรกรรมจากผู้ให้บริการที่เชื่อมต่อแล้ว"),
+      h("p",{class:"small"},"กำลังตรวจสอบความพร้อม…"));
+    api("/payment-integration").then((info)=>{
+      integrationBox.replaceChildren(
+        h("h2",{class:"m0"},"เชื่อมต่อรับชำระอัตโนมัติ (Phase 2)"),
+        h("p",{class:"small"},"รูปแบบรับเงิน: เข้าบัญชีร้านค้าโดยตรง"),
+        h("p",{class:"small"},"ยืนยันตัวตนร้าน: "+({approved:"ผ่านแล้ว",submitted:"รอตรวจสอบ",draft:"ยังไม่ส่งเอกสาร",rejected:"ต้องแก้ไขเอกสาร"}[info.kyc_status]||"รอตรวจสอบ")),
+        h("p",{class:"small"},"ตัวเชื่อมต่อโหมดทดสอบ: "+(info.test_connector_configured?"ตั้งค่าแล้ว":"ยังไม่ตั้งค่า")),
+        h("p",{class:"small"},"ตัวเชื่อมต่อโหมดจริง: "+(info.live_connector_configured?"ตั้งค่าแล้ว (ยังต้องยืนยันการเปิดใช้กับผู้ให้บริการ)":"ยังไม่ตั้งค่า")),
+        h("div",{class:"notice small"},"การตั้งค่า Webhook ไม่ใช่หลักฐานว่าธนาคารหรือ Payment Provider เปิดใช้งานแล้ว ต้องทดสอบการแจ้งเงินเข้าจริงก่อนเปิด Auto Verification"),
+        h("p",{class:"small muted"},"รองรับการต่อยอด KBank / SCB / Payment Provider ผ่านสัญญาแจ้งธุรกรรมที่ตรวจสอบลายเซ็นและรหัสอ้างอิงได้"));
+    }).catch(()=>integrationBox.replaceChildren(h("p",{class:"error"},"ไม่สามารถตรวจสอบสถานะการเชื่อมต่อได้")));
+
+    cards.push(integrationBox);
+    const omiseBox=h("div",{class:"card grid"},h("h2",{class:"m0"},"Omise Sandbox"),h("p",{class:"small muted"},"ตรวจสอบการเชื่อมต่อ API ในโหมดทดสอบเท่านั้น ไม่รับเงินจริง"));
+    const omiseStatus=h("p",{class:"small"},"ยังไม่ได้ตรวจสอบ");
+    omiseBox.append(omiseStatus,h("button",{class:"btn",type:"button",onclick:async()=>{
+      omiseStatus.textContent="กำลังตรวจสอบ…";
+      try {
+        const s=await api("/providers/omise/test");
+        omiseStatus.textContent=!s.configured?"ยังไม่มี Test Secret Key ในระบบ":s.connected?"เชื่อมต่อ Omise Sandbox สำเร็จ (ยังไม่เปิดใช้งานรับเงินจริง)":"มี Key แล้ว แต่เชื่อมต่อ API ไม่สำเร็จ";
+      } catch(ex){omiseStatus.textContent="ตรวจสอบไม่สำเร็จ: "+ex.message;}
+    }},"ทดสอบการเชื่อมต่อ Omise"));
+    cards.push(omiseBox);
+
     if (!c) {
       cards.push(h("div", { class: "card grid" },
         h("h2", { class: "m0" }, "ยืนยันเงินเข้าอัตโนมัติ ไม่ต้องรอสลิป"),
@@ -482,6 +524,48 @@
         } }, "เปลี่ยนรหัสผ่าน")) : null),
     ];
     if (S.me.user.kind === "merchant_user") {
+      const nameInput = h("input", {type:"text",value:S.me.user.name,required:true,maxlength:120,autocomplete:"name"});
+      const form = h("form",{class:"card grid",onsubmit:async(e)=>{
+        e.preventDefault();
+        const name = nameInput.value.trim();
+        if (!name) { toast("กรุณากรอกชื่อผู้ใช้"); return; }
+        try {
+          const result = await api("/profile",{method:"PATCH",body:{name}});
+          S.me.user.name = result.name;
+          toast("บันทึกโปรไฟล์แล้ว");
+          go("settings");
+        } catch (ex) { toast(ex.message); }
+      }},h("h2",{},"แก้ไขโปรไฟล์ส่วนตัว"),
+        h("label",{class:"f"},"ชื่อที่แสดง",nameInput),
+        h("p",{class:"small muted"},"ชื่อที่แสดงในมุมขวาบนของระบบ"),
+        h("button",{class:"btn primary",type:"submit"},"บันทึกชื่อ"));
+      cards.push(form);
+    }
+    if (S.me.user.kind === "merchant_user" && S.me.user.role === "owner") {
+      const password = h("input",{type:"password",autocomplete:"current-password",required:true,placeholder:"รหัสผ่านบัญชีเจ้าของร้าน"});
+      const result = h("div",{class:"grid",hidden:true});
+      const btn = h("button",{class:"btn danger",type:"submit"},"ยืนยันและออก Live Secret Key ใหม่");
+      const form = h("form",{class:"card grid",onsubmit:async(e)=>{
+        e.preventDefault();
+        if (!window.confirm("Live Secret Key เดิมจะใช้งานไม่ได้ทันที ระบบที่เชื่อมต่ออยู่ต้องเปลี่ยนเป็น Key ใหม่ ยืนยันหรือไม่?")) return;
+        btn.disabled=true;
+        try {
+          const r=await api("/keys/live/rotate",{method:"POST",body:{password:password.value,confirm:true}});
+          password.value="";
+          const field=h("input",{type:"text",readOnly:true,value:r.live_secret_key,autocomplete:"off",spellcheck:false,class:"mono"});
+          const copy=h("button",{class:"btn",type:"button",onclick:()=>navigator.clipboard.writeText(field.value).then(()=>toast("คัดลอกแล้ว")).catch(()=>toast("คัดลอกไม่สำเร็จ"))},"คัดลอก Key");
+          result.hidden=false;
+          result.replaceChildren(h("p",{class:"small"},"Live Secret Key ใหม่ (แสดงครั้งเดียว กรุณาจัดเก็บในที่ปลอดภัย)"),field,copy);
+          toast("ออก Live Secret Key ใหม่แล้ว");
+        }catch(ex){toast(ex.message);}
+        finally{btn.disabled=false;}
+      }},
+        h("h2",{},"ออก Live Secret Key ใหม่"),
+        h("p",{class:"small muted"},"เฉพาะเจ้าของร้าน • Key เดิมจะถูกยกเลิกทันทีหลังยืนยัน • Test Key ไม่เปลี่ยน"),
+        h("label",{class:"f"},"ยืนยันด้วยรหัสผ่านเจ้าของร้าน",password),btn,result);
+      cards.push(form);
+    }
+    if (S.me.user.kind === "merchant_user") {
       const mfaBox = h("div");
       cards.push(mfaBox);
       UI.twoFactorCard(mfaBox, { api }).catch((ex) => mfaBox.replaceChildren(h("p", { class: "error" }, ex.message)));
@@ -535,6 +619,15 @@
         onLogout: async () => { await api("/logout", { method: "POST" }).catch(() => {}); showLogin(); },
         reason: MFA_REASON,
       });
+    }
+    // Prefer production data for approved merchant accounts. Never mislabel test data as real.
+    if (!S.me.livemode && S.me.user.kind === "merchant_user" && S.me.merchant.kyc.status === "approved") {
+      try {
+        await api("/mode", {method:"POST",body:{livemode:true}});
+        S.me = await api("/me");
+      } catch (error) {
+        console.warn("Could not switch to live data", error);
+      }
     }
     S.summary = can("payments.view") ? await api("/summary").catch(() => null) : null;
     go(S.tab);
