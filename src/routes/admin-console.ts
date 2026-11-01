@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { DUMMY_HASH, verifyPassword } from "../auth/passwords.ts";
@@ -130,44 +131,62 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
     return { ok: true };
   });
 
-  // Public callback endpoint: authenticated by dedicated random token and Omise API verification.
-  // Separate from admin cookie-authenticated routes.
+  // Sandbox webhook uses Omise HMAC-SHA256 signature over timestamp.raw_body.
+  // A dedicated parser preserves the exact bytes; never authenticate via URL query secrets.
   db.exec(`CREATE TABLE IF NOT EXISTS omise_sandbox_events (
     event_id TEXT PRIMARY KEY, charge_id TEXT NOT NULL, status TEXT NOT NULL,
     event_key TEXT NOT NULL, received_at TEXT NOT NULL
   )`);
-  app.post("/webhooks/omise/sandbox", async (req, reply) => {
-    const secret=process.env.OMISE_SANDBOX_WEBHOOK_TOKEN;
-    const provided=(req.query as {token?:string})?.token;
-    if(!secret || secret.length<24 || !provided || !safeEqual(provided,secret)) {
-      return reply.code(401).send({ok:false});
-    }
-    const payload=z.object({
-      id:z.string().max(100),key:z.string().max(100),
-      data:z.object({id:z.string().max(100)}).passthrough(),
-    }).passthrough().parse(req.body);
-    if(!payload.id.startsWith("evnt_test_") || !payload.data.id.startsWith("chrg_test_") ||
-       !["charge.complete","charge.create"].includes(payload.key)) {
-      return reply.code(202).send({ok:true,ignored:true});
-    }
-    const key=process.env.OMISE_TEST_SECRET_KEY;
-    if(!key || !key.startsWith("skey_test_")) return reply.code(503).send({ok:false});
-    const response=await fetch("https://api.omise.co/charges/"+encodeURIComponent(payload.data.id),{
-      headers:{Authorization:"Basic "+Buffer.from(key+":").toString("base64")},
-      signal:AbortSignal.timeout(12000),
+  await app.register(async (webhook) => {
+    webhook.removeContentTypeParser("application/json");
+    webhook.addContentTypeParser("application/json", { parseAs:"buffer" }, (_req, body, done) => done(null,body));
+    webhook.post("/webhooks/omise/sandbox", async (req, reply) => {
+      const secret=process.env.OMISE_SANDBOX_WEBHOOK_SECRET;
+      const signature=req.headers["omise-signature"];
+      const timestamp=req.headers["omise-signature-timestamp"];
+      const raw=req.body;
+      if(!secret || typeof signature!=="string" || typeof timestamp!=="string" || !Buffer.isBuffer(raw))
+        return reply.code(401).send({ok:false});
+      const ts=Number(timestamp);
+      if(!/^\\d{10,13}$/.test(timestamp) || !Number.isSafeInteger(ts) ||
+         Math.abs(Date.now()-ts*(timestamp.length===13?1:1000))>300000)
+        return reply.code(401).send({ok:false});
+      const key=Buffer.from(secret,"base64");
+      if(key.length<24) return reply.code(401).send({ok:false});
+      const expected=createHmac("sha256",key).update(timestamp+".").update(raw).digest();
+      const valid=signature.split(",").some(part=>{
+        const hex=part.trim();
+        if(!/^[a-f0-9]{64}$/i.test(hex)) return false;
+        return timingSafeEqual(Buffer.from(hex,"hex"),expected);
+      });
+      if(!valid) return reply.code(401).send({ok:false});
+      let body:unknown;
+      try{body=JSON.parse(raw.toString("utf8"));}catch{return reply.code(400).send({ok:false});}
+      const payload=z.object({
+        id:z.string().max(100),key:z.string().max(100),
+        data:z.object({id:z.string().max(100)}).passthrough(),
+      }).passthrough().parse(body);
+      if(!payload.id.startsWith("evnt_test_") || !payload.data.id.startsWith("chrg_test_") ||
+         !["charge.complete","charge.create"].includes(payload.key))
+        return reply.code(200).send({ok:true,ignored:true});
+      const apiKey=process.env.OMISE_TEST_SECRET_KEY;
+      if(!apiKey || !apiKey.startsWith("skey_test_"))return reply.code(503).send({ok:false});
+      const response=await fetch("https://api.omise.co/charges/"+encodeURIComponent(payload.data.id),{
+        headers:{Authorization:"Basic "+Buffer.from(apiKey+":").toString("base64")},
+        signal:AbortSignal.timeout(12000),
+      });
+      if(!response.ok)return reply.code(502).send({ok:false});
+      const charge:any=await response.json();
+      if(charge.id!==payload.data.id || charge.livemode!==false || charge.currency!=="THB" ||
+         !String(charge.description||"").startsWith("BIZHUB PAY sandbox PromptPay"))
+        return reply.code(200).send({ok:true,ignored:true});
+      if(!["pending","successful","failed","expired","reversed"].includes(charge.status))
+        return reply.code(200).send({ok:true,ignored:true});
+      db.prepare(`INSERT OR IGNORE INTO omise_sandbox_events
+        (event_id,charge_id,status,event_key,received_at) VALUES (?,?,?,?,?)`)
+        .run(payload.id,charge.id,charge.status,payload.key,now());
+      return {ok:true};
     });
-    if(!response.ok) return reply.code(502).send({ok:false});
-    const charge:any=await response.json();
-    if(charge.livemode!==false || charge.currency!=="THB" ||
-       !String(charge.description||"").startsWith("BIZHUB PAY sandbox PromptPay")) {
-      return reply.code(202).send({ok:true,ignored:true});
-    }
-    if(!["pending","successful","failed","expired","reversed"].includes(charge.status))
-      return reply.code(202).send({ok:true,ignored:true});
-    db.prepare(`INSERT OR IGNORE INTO omise_sandbox_events
-      (event_id,charge_id,status,event_key,received_at) VALUES (?,?,?,?,?)`)
-      .run(payload.id,charge.id,charge.status,payload.key,now());
-    return {ok:true};
   });
 
   await app.register(async (api) => {
@@ -248,8 +267,7 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
     api.get(`${BASE}/providers/omise/webhook-status`, { preHandler: need("admins.manage") }, async () => {
       const rows=db.prepare(`SELECT charge_id,status,event_key,received_at FROM omise_sandbox_events
         ORDER BY received_at DESC LIMIT 30`).all();
-      return {configured:Boolean(process.env.OMISE_SANDBOX_WEBHOOK_TOKEN &&
-        process.env.OMISE_SANDBOX_WEBHOOK_TOKEN.length>=24),mode:"test",events:rows};
+      return {configured:Boolean(process.env.OMISE_SANDBOX_WEBHOOK_SECRET),mode:"test",events:rows};
     });
 
     // Sandbox-only PromptPay: charges belong to the platform's Omise test account.
