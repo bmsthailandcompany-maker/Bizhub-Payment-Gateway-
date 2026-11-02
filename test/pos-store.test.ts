@@ -1,0 +1,31 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { DatabaseSync } from "node:sqlite";
+import { migratePos, PosStore } from "../src/pos/store.ts";
+test("merchant products, orders and ledger are isolated",()=>{
+ const db=new DatabaseSync(":memory:");
+ migratePos(db);
+ const pos=new PosStore(db);
+ const a=pos.product("shop-a","Coffee",6500,2000);
+ pos.product("shop-b","Tea",5000);
+ assert.equal(pos.products("shop-a").length,1);
+ assert.equal(pos.products("shop-b").length,1);
+ assert.throws(()=>pos.order("shop-b",[{productId:a,quantity:1}]));
+ const id=pos.order("shop-a",[{productId:a,quantity:2}]);
+ assert.throws(()=>pos.cash("shop-b",id));
+ pos.cash("shop-a",id);
+ assert.throws(()=>pos.cash("shop-a",id));
+ pos.expense("shop-a","rent",3000);
+ assert.deepEqual(pos.summary("shop-a"),{incomeSatang:13000,expenseSatang:3000,netSatang:10000});
+ assert.deepEqual(pos.summary("shop-b"),{incomeSatang:0,expenseSatang:0,netSatang:0});
+ db.close();
+});
+test("QR binding is not automatically verified",()=>{
+ const db=new DatabaseSync(":memory:");migratePos(db);
+ const pos=new PosStore(db);
+ pos.qr("shop-a","0812345678");
+ const row=db.prepare("SELECT owner_verified FROM pos_qr WHERE merchant_id=?").get("shop-a") as {owner_verified:number};
+ assert.equal(row.owner_verified,0);
+ assert.throws(()=>pos.qr("shop-a","invalid"));
+ db.close();
+});
