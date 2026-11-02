@@ -1,4 +1,5 @@
 import multipart from "@fastify/multipart";
+import { migratePos, PosStore } from "./pos/store.ts";
 import Fastify, { type FastifyInstance } from "fastify";
 import { ZodError } from "zod";
 import type { Config } from "./config.ts";
@@ -57,6 +58,8 @@ export interface Gateway {
 
 export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gateway> {
   const db = deps.db ?? openDb(config.dataDir);
+  migratePos(db);
+  const pos = new PosStore(db);
   const fetchImpl = deps.fetchImpl ?? fetch;
   const liveCard =
     deps.liveCardProvider !== undefined
@@ -138,7 +141,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
 
   app.get("/health", async () => ({ ok: true }));
   app.get("/", async (_req, reply) => reply.redirect("/dashboard"));
-  await app.register(merchantApiRoutes, { merchants, payments, slips });
+  await app.register(merchantApiRoutes, { merchants, payments, slips, pos });
   await app.register(adminRoutes, { db, adminToken: config.adminToken, merchants, payments });
   await app.register(assetRoutes);
   await app.register(dashboardRoutes, {
