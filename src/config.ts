@@ -29,6 +29,13 @@ export interface Config {
   backupKeep?: number;
   /** Admin console accounts must set up two-factor authentication before using the console. */
   requireAdmin2fa: boolean;
+  /**
+   * Which proxies may set X-Forwarded-For (Fastify trustProxy): a hop count, an IP/CIDR list, or false.
+   * Only the hops you run yourself may be trusted, or clients could fake their IP and dodge rate limits.
+   */
+  trustProxy?: number | string | boolean;
+  /** Deliver webhooks to private, loopback and link-local addresses (development only). */
+  webhookAllowPrivate?: boolean;
   /** Interval for background jobs (webhook delivery, expiry sweep). 0 disables them. */
   workerIntervalMs: number;
 }
@@ -63,7 +70,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     backupIntervalHours: Number(env.BACKUP_INTERVAL_HOURS ?? 24),
     backupKeep: Number(env.BACKUP_KEEP ?? 14),
     offsiteBackup: loadOffsite(env),
+    trustProxy: parseTrustProxy(env.TRUST_PROXY),
+    webhookAllowPrivate: env.WEBHOOK_ALLOW_PRIVATE === "true",
   };
+}
+
+/** Default 1: one reverse proxy (Caddy, Nginx, Railway's edge) sits in front of the gateway. */
+export function parseTrustProxy(v: string | undefined): number | string | boolean {
+  const t = (v ?? "").trim();
+  if (!t) return 1;
+  if (t === "false" || t === "0") return false;
+  if (/^\d+$/.test(t)) return Number(t);
+  if (t === "true") throw new Error("TRUST_PROXY=true would trust any X-Forwarded-For; set a hop count or proxy IPs instead");
+  return t;
 }
 
 function loadSlipVerifier(env: NodeJS.ProcessEnv): Config["slipVerifier"] {

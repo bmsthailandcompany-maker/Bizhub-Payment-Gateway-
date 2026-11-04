@@ -161,6 +161,13 @@ export class SlipService {
   private apply(id: string, d: Decision, isRetry: boolean): { payment: PaymentRow; result: SlipResult } {
     let decision: Decision = d;
 
+    // Every slip the bank confirmed, whatever the verdict, is checked against transfers already used
+    // or claimed by another open payment, so one transfer can never pay for two payments even when a
+    // person approves them by hand.
+    if (decision.slip && decision.outcome !== "rejected" && this.usedElsewhere(decision.slip.transRef, id)) {
+      decision = { ...decision, outcome: "rejected", reason: "duplicate_slip" };
+    }
+
     if (decision.outcome === "verified" && decision.slip) {
       const slip = decision.slip;
       try {
@@ -170,7 +177,7 @@ export class SlipService {
             const used = this.db.prepare("SELECT payment_id FROM used_slips WHERE trans_ref = ?").get(slip.transRef) as
               | { payment_id: string }
               | undefined;
-            if (used && used.payment_id !== id) throw new DuplicateSlip();
+            if ((used && used.payment_id !== id) || this.usedElsewhere(slip.transRef, id)) throw new DuplicateSlip();
             if (!used) {
               this.db
                 .prepare("INSERT INTO used_slips (trans_ref, payment_id, created_at) VALUES (?, ?, ?)")
@@ -202,11 +209,17 @@ export class SlipService {
     this.log(id, decision);
     const reason = "reason" in decision ? decision.reason : null;
 
+    // A background re-check only touches a payment still waiting for review: if the merchant approved
+    // or rejected it meanwhile, their decision stands.
+    const stillOpen = isRetry ? " AND status = 'awaiting_review'" : "";
+
     if (decision.outcome === "rejected") {
-      this.db
-        .prepare("UPDATE payments SET verify_status = 'rejected', verify_reason = ?, verify_retry_at = NULL, updated_at = ? WHERE id = ?")
+      const changed = this.db
+        .prepare(`UPDATE payments SET verify_status = 'rejected', verify_reason = ?, verify_retry_at = NULL, updated_at = ? WHERE id = ?${stillOpen}`)
         .run(reason, now(), id);
       const payment = this.payments.get(id)!;
+      if (changed.changes === 0) return { payment, result: { outcome: "needs_review", reason: "payment_state_changed" } };
+      // On a re-check the payment stays awaiting review, flagged rejected, for the merchant to reject.
       this.payments.emitEvent(payment, "payment.slip_rejected");
       return { payment, result: { outcome: "rejected", reason } };
     }
@@ -218,15 +231,31 @@ export class SlipService {
       decision.retryAfterSeconds !== undefined && retries < MAX_VERIFY_RETRIES
         ? new Date(Date.now() + Math.max(decision.retryAfterSeconds, RETRY_DELAYS_S[retries] ?? 0) * 1000).toISOString()
         : null;
+    // The slip's transfer is remembered on the payment so it is claimed once a person approves it.
+    const transRef = decision.slip?.transRef ?? null;
     const mark = () =>
       this.db
-        .prepare("UPDATE payments SET verify_status = 'needs_review', verify_reason = ?, verify_retry_at = ? WHERE id = ?")
-        .run(reason, retryAt, id);
+        .prepare(
+          `UPDATE payments SET verify_status = 'needs_review', verify_reason = ?, verify_retry_at = ?,
+             slip_trans_ref = COALESCE(?, slip_trans_ref) WHERE id = ?${stillOpen}`,
+        )
+        .run(reason, retryAt, transRef, id);
     if (isRetry) {
-      mark();
+      if (mark().changes === 0) return { payment: this.payments.get(id)!, result: { outcome: "needs_review", reason: "payment_state_changed" } };
       return { payment: this.payments.get(id)!, result: { outcome: "needs_review", reason } };
     }
     return { payment: this.payments.transition(id, "awaiting_review", { before: mark }), result: { outcome: "needs_review", reason } };
+  }
+
+  /** True when the transfer already paid, or is claimed by, a payment other than `paymentId`. */
+  private usedElsewhere(transRef: string, paymentId: string): boolean {
+    const used = this.db.prepare("SELECT payment_id FROM used_slips WHERE trans_ref = ?").get(transRef) as { payment_id: string } | undefined;
+    if (used) return used.payment_id !== paymentId;
+    return !!this.db
+      .prepare(
+        `SELECT 1 FROM payments WHERE slip_trans_ref = ? AND id != ? AND status IN ('pending', 'awaiting_review', 'succeeded') LIMIT 1`,
+      )
+      .get(transRef, paymentId);
   }
 
   private log(paymentId: string, d: Decision): void {

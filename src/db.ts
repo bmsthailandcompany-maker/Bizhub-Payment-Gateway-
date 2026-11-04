@@ -306,6 +306,11 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["merchants", "kyc_reviewed_by", "TEXT"],
   // Service plan the shop is billed on (null = not billed).
   ["merchants", "plan_id", "TEXT"],
+  // The card charge attempt in flight: its idempotency key and one-time card token, so a request
+  // whose answer was lost can be re-sent without charging twice. Cleared once the outcome is known.
+  ["payments", "charge_key", "TEXT"],
+  ["payments", "charge_token", "TEXT"],
+  ["payments", "charge_started_at", "TEXT"],
 ];
 
 function migrate(db: Db): void {

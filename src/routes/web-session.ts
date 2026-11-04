@@ -9,7 +9,12 @@ import { SESSION_TTL_MS } from "../services/sessions.ts";
 export function readCookie(req: FastifyRequest, name: string): string | undefined {
   for (const part of (req.headers.cookie ?? "").split(";")) {
     const [k, ...v] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(v.join("="));
+    if (k !== name) continue;
+    try {
+      return decodeURIComponent(v.join("="));
+    } catch {
+      return undefined; // a malformed cookie is treated as no cookie, not a server error
+    }
   }
   return undefined;
 }

@@ -160,14 +160,33 @@ export class BankService {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'processing', ?)`,
         )
         .run(eventId, conn.id, conn.merchant_id, conn.livemode, transRef, amount, ref1, n.ref2?.trim() || null, n.payer_name?.slice(0, 120) || null, paidAt, now());
-    } catch {
+    } catch (err) {
+      if (!/UNIQUE/i.test(err instanceof Error ? err.message : String(err))) throw err;
       const prior = this.db
-        .prepare("SELECT id, payment_id FROM bank_events WHERE connection_id = ? AND trans_ref = ?")
-        .get(conn.id, transRef) as { id: string; payment_id: string | null } | undefined;
+        .prepare("SELECT id, payment_id, outcome, amount, paid_at, ref1 FROM bank_events WHERE connection_id = ? AND trans_ref = ?")
+        .get(conn.id, transRef) as { id: string; payment_id: string | null; outcome: string; amount: number; paid_at: string; ref1: string | null } | undefined;
+      // An earlier delivery was cut off part-way (crash): finish it now instead of losing the transfer.
+      if (prior && prior.outcome === "processing") return this.process(conn, prior.id, transRef, prior.amount, prior.paid_at, prior.ref1);
       return { outcome: "duplicate", payment_id: prior?.payment_id ?? null, event_id: prior?.id };
     }
+    return this.process(conn, eventId, transRef, amount, paidAt, ref1);
+  }
 
-    const result = this.match(conn, transRef, amount, paidAt, ref1);
+  private process(conn: BankConnectionRow, eventId: string, transRef: string, amount: number, paidAt: string, ref1: string | null): BankResult {
+    let result: BankResult;
+    try {
+      result = this.match(conn, transRef, amount, paidAt, ref1);
+    } catch (err) {
+      // Whatever went wrong, the money is recorded and left for staff to assign by hand.
+      result = { outcome: "unmatched", reason: "processing_error" };
+      this.audit.log({
+        merchantId: conn.merchant_id,
+        actor: { kind: "system", id: conn.id, name: `ธนาคาร (${conn.label})`, role: "", mustChangePassword: false },
+        action: "bank.processing_error",
+        target: transRef,
+        details: { amount, error: err instanceof Error ? err.message : String(err) },
+      });
+    }
     this.db
       .prepare("UPDATE bank_events SET outcome = ?, reason = ?, payment_id = ? WHERE id = ?")
       .run(result.outcome, result.reason ?? null, result.payment_id ?? null, eventId);
@@ -206,7 +225,7 @@ export class BankService {
     return { outcome: "unmatched", reason: "no_open_payment_with_amount" };
   }
 
-  private settle(p: PaymentRow, transRef: string, amount: number): BankResult {
+  private settle(p: PaymentRow, transRef: string, amount: number, again = true): BankResult {
     if (p.status === "succeeded") return { outcome: "already_paid", payment_id: p.id };
     if (!["pending", "awaiting_review"].includes(p.status)) {
       // Money arrived for a payment that is already closed: the merchant decides (refund or honour).
@@ -214,12 +233,18 @@ export class BankService {
     }
     if (amount !== p.amount) {
       if (p.status === "pending") {
-        this.payments.transition(p.id, "awaiting_review", {
-          before: () =>
-            this.db
-              .prepare("UPDATE payments SET verify_status = 'needs_review', verify_reason = ? WHERE id = ?")
-              .run(amount < p.amount ? "bank_amount_too_low" : "bank_amount_too_high", p.id),
-        });
+        try {
+          this.payments.transition(p.id, "awaiting_review", {
+            before: () =>
+              this.db
+                .prepare("UPDATE payments SET verify_status = 'needs_review', verify_reason = ? WHERE id = ?")
+                .run(amount < p.amount ? "bank_amount_too_low" : "bank_amount_too_high", p.id),
+          });
+        } catch (err) {
+          // The payment changed meanwhile (e.g. it just expired): judge again against its new state.
+          if (again && err instanceof PaymentError && err.code === "invalid_state") return this.settle(this.payments.get(p.id)!, transRef, amount, false);
+          throw err;
+        }
       }
       return { outcome: "amount_mismatch", reason: amount < p.amount ? "amount_too_low" : "amount_too_high", payment_id: p.id };
     }
@@ -241,7 +266,11 @@ export class BankService {
       return { outcome: "matched", payment_id: p.id };
     } catch (err) {
       if (err instanceof PaymentError && err.code === "transfer_used") return { outcome: "duplicate", reason: "transfer_used_elsewhere", payment_id: p.id };
-      if (err instanceof PaymentError && err.code === "invalid_state") return { outcome: "already_paid", payment_id: p.id };
+      if (err instanceof PaymentError && err.code === "invalid_state") {
+        const cur = this.payments.get(p.id)!;
+        if (again && cur.status !== "succeeded") return this.settle(cur, transRef, amount, false);
+        return { outcome: "already_paid", payment_id: p.id };
+      }
       throw err;
     }
   }

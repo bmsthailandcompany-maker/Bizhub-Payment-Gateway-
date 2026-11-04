@@ -4,9 +4,9 @@ import path from "node:path";
 import type { Config } from "../config.ts";
 import type { Db } from "../db.ts";
 import { now, tx } from "../db.ts";
-import { newId, sha256 } from "../ids.ts";
+import { newId, randomToken, sha256 } from "../ids.ts";
 import { buildBillPaymentPayload, buildPromptPayPayload } from "../promptpay.ts";
-import type { CardChargeResult, CardProvider } from "../providers/card.ts";
+import { type CardChargeResult, type CardProvider, CardProviderError } from "../providers/card.ts";
 import type { MerchantRow } from "./merchants.ts";
 import type { WebhookService } from "./webhooks.ts";
 
@@ -40,6 +40,9 @@ export interface PaymentRow {
   verify_retries: number;
   slip_trans_ref: string | null;
   ref_code: string | null;
+  charge_key: string | null;
+  charge_token: string | null;
+  charge_started_at: string | null;
   confirmed_by: "card" | "slip" | "bank" | "manual" | null;
   expires_at: string;
   paid_at: string | null;
@@ -90,6 +93,9 @@ const TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
 };
 
 const CHARGE_IN_FLIGHT = "__charging__";
+
+/** A charge request with no answer after this long is re-sent (same idempotency key) by reconcileCards. */
+export const CHARGE_STALE_MS = 2 * 60_000;
 
 /** A slip check that has been "verifying" longer than this is assumed to have crashed. */
 export const VERIFICATION_LOCK_MS = 2 * 60_000;
@@ -200,10 +206,19 @@ export class PaymentService {
 
     return tx(this.db, () => {
       const requestHash = sha256(JSON.stringify(input));
+      // Test and live keys share one table, so the stored key carries the mode: a key used in test
+      // mode must never hand back a test payment to a live request (or the other way round).
+      const storedKey = idempotencyKey ? `${livemode ? "live" : "test"}:${idempotencyKey}` : undefined;
       if (idempotencyKey) {
-        const existing = this.db
-          .prepare("SELECT request_hash, payment_id FROM idempotency_keys WHERE merchant_id = ? AND key = ?")
-          .get(merchant.id, idempotencyKey) as { request_hash: string; payment_id: string } | undefined;
+        const lookup = this.db.prepare(
+          `SELECT k.request_hash, k.payment_id, p.livemode FROM idempotency_keys k JOIN payments p ON p.id = k.payment_id
+           WHERE k.merchant_id = ? AND k.key = ?`,
+        );
+        // Keys stored before the mode prefix existed still count, but only for their own mode.
+        const legacy = lookup.get(merchant.id, idempotencyKey) as { request_hash: string; payment_id: string; livemode: number } | undefined;
+        const existing =
+          (lookup.get(merchant.id, storedKey!) as { request_hash: string; payment_id: string } | undefined) ??
+          (legacy && (legacy.livemode === 1) === livemode ? legacy : undefined);
         if (existing) {
           if (existing.request_hash !== requestHash) {
             throw new PaymentError(409, "idempotency_conflict", "Idempotency-Key was reused with different parameters");
@@ -254,7 +269,7 @@ export class PaymentService {
           .prepare(
             "INSERT INTO idempotency_keys (merchant_id, key, request_hash, payment_id, created_at) VALUES (?, ?, ?, ?, ?)",
           )
-          .run(merchant.id, idempotencyKey, requestHash, id, ts);
+          .run(merchant.id, storedKey!, requestHash, id, ts);
       }
       const payment = this.get(id)!;
       this.webhooks.emit(merchant.id, "payment.created", id, this.serialize(payment));
@@ -274,18 +289,26 @@ export class PaymentService {
       provider_ref?: string;
       confirmed_by?: PaymentRow["confirmed_by"];
       before?: () => void;
+      lateCardSuccess?: boolean;
     } = {},
   ): PaymentRow {
     return tx(this.db, () => {
       extra.before?.();
-      const from = TRANSITIONS[to];
+      // A card charge that already went through is recorded even if the payment closed meanwhile.
+      const from = extra.lateCardSuccess ? [...TRANSITIONS[to], "expired", "cancelled"] : TRANSITIONS[to];
       const ts = now();
-      // A payment whose slip is being checked right now must not expire underneath the check.
-      const guard =
-        to === "expired"
-          ? " AND (verify_status IS NOT 'verifying' OR verify_started_at < ?)"
-          : "";
-      const guardArgs = to === "expired" ? [verificationLockCutoff()] : [];
+      let guard = "";
+      const guardArgs: string[] = [];
+      if (to === "expired") {
+        // A payment whose slip is being checked right now must not expire underneath the check.
+        guard += " AND (verify_status IS NOT 'verifying' OR verify_started_at < ?)";
+        guardArgs.push(verificationLockCutoff());
+      }
+      if (to === "expired" || to === "cancelled") {
+        // Nor while a card charge is in flight or waiting for 3-D Secure: the provider may still take
+        // the money. reconcileCards settles those charges, then the payment can close.
+        guard += " AND NOT (method = 'card' AND provider_ref IS NOT NULL)";
+      }
       const result = this.db
         .prepare(
           `UPDATE payments SET status = ?, updated_at = ?,
@@ -311,6 +334,9 @@ export class PaymentService {
       const payment = this.get(id);
       if (!payment) throw new PaymentError(404, "not_found", "Payment not found");
       if (result.changes === 0) {
+        if (payment.status === "pending" && payment.method === "card" && payment.provider_ref && (to === "expired" || to === "cancelled")) {
+          throw new PaymentError(409, "charge_in_progress", "A card charge for this payment is still being processed");
+        }
         throw new PaymentError(409, "invalid_state", `Cannot change payment from '${payment.status}' to '${to}'`);
       }
       this.webhooks.emit(payment.merchant_id, `payment.${to}`, id, this.serialize(payment));
@@ -322,7 +348,21 @@ export class PaymentService {
   /** Merchant confirms money arrived for a PromptPay / bank transfer payment. */
   approve(p: PaymentRow): PaymentRow {
     if (p.method === "card") throw new PaymentError(400, "invalid_method", "Card payments are confirmed by the card provider");
-    return this.transition(p.id, "succeeded", { confirmed_by: "manual" });
+    return this.transition(p.id, "succeeded", {
+      confirmed_by: "manual",
+      // The transfer on the slip (if the bank read one) pays this payment only; claim it now.
+      before: () => {
+        const cur = this.get(p.id);
+        if (!cur?.slip_trans_ref) return;
+        const used = this.db.prepare("SELECT payment_id FROM used_slips WHERE trans_ref = ?").get(cur.slip_trans_ref) as
+          | { payment_id: string }
+          | undefined;
+        if (used && used.payment_id !== p.id) {
+          throw new PaymentError(409, "transfer_used", "The transfer on this slip already paid another payment");
+        }
+        if (!used) this.db.prepare("INSERT INTO used_slips (trans_ref, payment_id, created_at) VALUES (?, ?, ?)").run(cur.slip_trans_ref, p.id, now());
+      },
+    });
   }
 
   /** Merchant rejects a slip that is waiting for review. */
@@ -420,11 +460,25 @@ export class PaymentService {
     const provider = this.cardProviderFor(p);
 
     // Claim the payment before calling the provider so concurrent submits cannot double-charge.
+    // The attempt's key and token are kept until the provider's answer is known, so a lost answer
+    // can be recovered by re-sending the very same request (see reconcileCards).
+    const key = `${p.id}_${randomToken(8)}`;
     const claimed = this.db
-      .prepare("UPDATE payments SET provider_ref = ? WHERE id = ? AND status = 'pending' AND provider_ref IS NULL")
-      .run(CHARGE_IN_FLIGHT, p.id);
+      .prepare(
+        `UPDATE payments SET provider_ref = ?, charge_key = ?, charge_token = ?, charge_started_at = ?
+         WHERE id = ? AND status = 'pending' AND provider_ref IS NULL`,
+      )
+      .run(CHARGE_IN_FLIGHT, key, token, now(), p.id);
     if (claimed.changes === 0) throw new PaymentError(409, "charge_in_progress", "A charge is already in progress");
+    return this.sendCharge(p, provider, token, key);
+  }
 
+  private async sendCharge(
+    p: PaymentRow,
+    provider: CardProvider,
+    token: string,
+    key: string,
+  ): Promise<{ payment: PaymentRow; authorizeUri?: string }> {
     let result: CardChargeResult;
     try {
       result = await provider.charge({
@@ -434,32 +488,102 @@ export class PaymentService {
         description: p.description ?? `Payment ${p.id}`,
         returnUri: `${this.config.publicBaseUrl}/checkout/${p.id}/card-return`,
         paymentId: p.id,
+        idempotencyKey: key,
       });
     } catch (err) {
-      this.db.prepare("UPDATE payments SET provider_ref = NULL WHERE id = ? AND provider_ref = ?").run(p.id, CHARGE_IN_FLIGHT);
-      throw new PaymentError(502, "provider_error", err instanceof Error ? err.message : "Card provider error");
+      const message = err instanceof Error ? err.message : "Card provider error";
+      if (err instanceof CardProviderError && err.definitive) {
+        // The provider refused the request, so nothing was charged: the customer may try again.
+        this.db
+          .prepare(
+            `UPDATE payments SET provider_ref = NULL, charge_key = NULL, charge_token = NULL, charge_started_at = NULL,
+               failure_reason = ?, updated_at = ? WHERE id = ? AND provider_ref = ? AND charge_key = ?`,
+          )
+          .run("card_provider_refused", now(), p.id, CHARGE_IN_FLIGHT, key);
+        throw new PaymentError(502, "provider_error", message);
+      }
+      // Timeout or network error: the charge may exist. Keep the claim so the customer cannot pay
+      // twice; reconcileCards re-sends the same request (same idempotency key) to learn the outcome.
+      throw new PaymentError(502, "charge_unconfirmed", "The card provider did not answer; the charge is being checked. Do not pay again.");
     }
-    return { payment: this.applyCardResult(p.id, result), authorizeUri: result.authorizeUri };
+    return { payment: this.applyCardResult(p.id, result, key), authorizeUri: result.authorizeUri };
   }
 
   /** Re-checks a card charge with the provider (after 3-D Secure redirect). */
   async refreshCard(id: string): Promise<PaymentRow> {
     const p = this.requireCheckout(id);
-    if (p.method !== "card" || p.status !== "pending" || !p.provider_ref || p.provider_ref === CHARGE_IN_FLIGHT) return p;
-    return this.applyCardResult(p.id, await this.cardProviderFor(p).retrieve(p.provider_ref));
+    if (p.method !== "card" || !p.provider_ref || p.provider_ref === CHARGE_IN_FLIGHT) return p;
+    // A closed payment is still checked: a charge captured after it closed must be recorded.
+    if (p.status !== "pending" && p.status !== "expired" && p.status !== "cancelled") return p;
+    return this.applyCardResult(p.id, await this.cardProviderFor(p).retrieve(p.provider_ref), null);
   }
 
-  private applyCardResult(id: string, result: CardChargeResult): PaymentRow {
+  /**
+   * Background settlement of card charges whose outcome is still open: charges whose request got no
+   * answer (re-sent with the same idempotency key) and 3-D Secure charges of payments past expiry.
+   * Once the provider gives a final answer the payment either succeeds or can expire normally.
+   */
+  async reconcileCards(limit = 20): Promise<number> {
+    const stale = new Date(Date.now() - CHARGE_STALE_MS).toISOString();
+    const due = this.db
+      .prepare(
+        `SELECT * FROM payments WHERE method = 'card' AND status = 'pending' AND provider_ref IS NOT NULL
+           AND ((provider_ref = ? AND charge_started_at < ?) OR (provider_ref != ? AND expires_at <= ? AND updated_at < ?))
+         ORDER BY updated_at LIMIT ?`,
+      )
+      // A 3-D Secure charge the customer abandoned is asked about at most once a minute.
+      .all(CHARGE_IN_FLIGHT, stale, CHARGE_IN_FLIGHT, now(), new Date(Date.now() - 60_000).toISOString(), limit) as unknown as PaymentRow[];
+    for (const p of due) {
+      try {
+        const provider = this.cardProviderFor(p);
+        if (p.provider_ref === CHARGE_IN_FLIGHT) {
+          if (!p.charge_key || !p.charge_token) {
+            // Claimed by a version that kept no key: nothing to re-send, so release it.
+            this.db.prepare("UPDATE payments SET provider_ref = NULL WHERE id = ? AND provider_ref = ?").run(p.id, CHARGE_IN_FLIGHT);
+            continue;
+          }
+          this.db.prepare("UPDATE payments SET charge_started_at = ? WHERE id = ?").run(now(), p.id);
+          await this.sendCharge(p, provider, p.charge_token, p.charge_key).catch((err) => {
+            if (!(err instanceof PaymentError)) throw err;
+          });
+        } else {
+          await this.refreshCard(p.id);
+        }
+      } catch {
+        // Try again on the next round.
+      }
+      this.expireIfDue(this.get(p.id)!);
+    }
+    return due.length;
+  }
+
+  /** @param key the attempt the result belongs to, or null for a re-check of a known charge */
+  private applyCardResult(id: string, result: CardChargeResult, key: string | null): PaymentRow {
     const providerRef = result.providerRef ?? undefined;
-    if (result.status === "succeeded") return this.transition(id, "succeeded", { provider_ref: providerRef, confirmed_by: "card" });
+    const done = "charge_key = NULL, charge_token = NULL, charge_started_at = NULL";
+    const sameAttempt = key ? " AND charge_key = ?" : "";
+    const keyArgs = key ? [key] : [];
+    if (result.status === "succeeded") {
+      const cur = this.get(id)!;
+      if (cur.status === "succeeded") return cur;
+      return this.transition(id, "succeeded", {
+        provider_ref: providerRef,
+        confirmed_by: "card",
+        lateCardSuccess: true,
+        before: () => this.db.prepare(`UPDATE payments SET ${done} WHERE id = ?`).run(id),
+      });
+    }
     if (result.status === "failed") {
       // A declined card leaves the payment open so the customer can retry with another card until it expires.
       this.db
-        .prepare("UPDATE payments SET provider_ref = NULL, failure_reason = ?, updated_at = ? WHERE id = ?")
-        .run(result.failureReason ?? "card_failed", now(), id);
+        .prepare(`UPDATE payments SET provider_ref = NULL, ${done}, failure_reason = ?, updated_at = ? WHERE id = ?${sameAttempt}`)
+        .run(result.failureReason ?? "card_failed", now(), id, ...keyArgs);
       return this.get(id)!;
     }
-    this.db.prepare("UPDATE payments SET provider_ref = ?, updated_at = ? WHERE id = ?").run(providerRef ?? null, now(), id);
+    // Pending (3-D Secure): the charge exists, so the token and key are no longer needed.
+    this.db
+      .prepare(`UPDATE payments SET provider_ref = ?, ${done}, updated_at = ? WHERE id = ?${sameAttempt}`)
+      .run(providerRef ?? null, now(), id, ...keyArgs);
     return this.get(id)!;
   }
 

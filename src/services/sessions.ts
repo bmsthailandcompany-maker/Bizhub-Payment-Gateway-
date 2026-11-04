@@ -157,11 +157,16 @@ export class SessionService {
 }
 
 /** Slows down password guessing: 5 failures per email+IP within 15 minutes locks that pair out for the window. */
+/**
+ * Counts failures per key. Keys look like `<ip>|<account>`; besides the per-IP limit, the account
+ * part has its own (higher) limit so an attacker who rotates IP addresses still runs out of tries.
+ */
 export class LoginLimiter {
   private readonly failures = new Map<string, number[]>();
   constructor(
     private readonly max = 5,
     private readonly windowMs = 15 * 60_000,
+    private readonly accountMax = 30,
   ) {}
 
   private recent(key: string): number[] {
@@ -172,15 +177,27 @@ export class LoginLimiter {
     return list;
   }
 
+  /** The account-wide key, or null when the key names no single account (secret-key logins). */
+  private accountKey(key: string): string | null {
+    const i = key.indexOf("|");
+    const account = i < 0 ? "" : key.slice(i + 1);
+    return account && account !== "secret-key" ? `account:${account}` : null;
+  }
+
   blocked(key: string): boolean {
-    return this.recent(key).length >= this.max;
+    const account = this.accountKey(key);
+    return this.recent(key).length >= this.max || (account !== null && this.recent(account).length >= this.accountMax);
   }
 
   fail(key: string): void {
     this.failures.set(key, [...this.recent(key), Date.now()]);
+    const account = this.accountKey(key);
+    if (account) this.failures.set(account, [...this.recent(account), Date.now()]);
   }
 
   succeed(key: string): void {
     this.failures.delete(key);
+    const account = this.accountKey(key);
+    if (account) this.failures.delete(account);
   }
 }

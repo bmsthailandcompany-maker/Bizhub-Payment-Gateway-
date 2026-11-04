@@ -36,6 +36,8 @@ export interface AppDeps {
   fetchImpl?: typeof fetch;
   liveCardProvider?: CardProvider | null;
   liveSlipVerifier?: SlipVerifier | null;
+  /** Host lookup used to keep webhooks off private addresses. */
+  resolveHost?: import("./services/webhooks.ts").ResolveHost;
   logger?: boolean;
 }
 
@@ -75,7 +77,11 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
           ? new SlipOkVerifier(sv.branchId, sv.apiKey, fetchImpl)
           : null;
 
-  const webhooks = new WebhookService(db, fetchImpl);
+  const webhooks = new WebhookService(db, fetchImpl, {
+    allowPrivate: config.webhookAllowPrivate ?? false,
+    // With an injected fetch (tests) no real request leaves the process, so skip real DNS lookups.
+    resolveHost: deps.resolveHost ?? (deps.fetchImpl ? async () => ["203.0.113.10"] : undefined),
+  });
   const merchants = new MerchantService(db);
   const payments = new PaymentService(db, config, webhooks, { test: new MockCardProvider(), live: liveCard });
   const slips = new SlipService(db, payments, merchants, { test: new MockSlipVerifier(), live: liveSlip });
@@ -101,7 +107,13 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     fetchImpl,
   });
 
-  const app = Fastify({ logger: deps.logger ?? true, bodyLimit: 1024 * 1024, trustProxy: true });
+  const app = Fastify({
+    logger: deps.logger ?? true,
+    bodyLimit: 1024 * 1024,
+    // Only our own proxy hop is trusted for the client IP. Fastify accepts a hop count at runtime
+    // (trust the nth hop); its typings only list the other forms.
+    trustProxy: (config.trustProxy ?? 1) as boolean,
+  });
   await app.register(multipart, { limits: { fileSize: MAX_SLIP_BYTES, files: 1, fields: 5 } });
 
   // Visitors who type the bare domain (bizhubpay.com) land on the canonical www host from PUBLIC_BASE_URL,
@@ -179,17 +191,38 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   });
   await app.register(checkoutRoutes, { merchants, payments, slips, omisePublicKey: config.omise?.publicKey ?? null });
 
+  // Each job runs on its own: one that fails (and logs) must never stop the others, above all webhook delivery.
+  const jobs: [name: string, run: () => unknown][] = [
+    ["expiry sweep", () => payments.sweepExpired()],
+    ["card reconciliation", () => payments.reconcileCards()],
+    ["slip re-check", () => slips.retryDue()],
+    [
+      "monthly invoices",
+      () => {
+        const invoiced = billing.runMonthly();
+        if (invoiced) app.log.info({ count: invoiced }, "monthly invoices issued");
+      },
+    ],
+    [
+      "maintenance",
+      async () => {
+        const m = await maintenance.run();
+        if (m.backup) app.log.info({ file: m.backup }, "database backup written");
+        if (m.purged) app.log.info({ count: m.purged }, "old slip images deleted under the retention policy");
+        if (m.uploaded) app.log.info({ count: m.uploaded }, "files copied to off-site backup");
+        if (m.offsiteError) app.log.error({ error: m.offsiteError }, "off-site backup failed; will retry");
+      },
+    ],
+    ["webhook delivery", () => webhooks.processDue()],
+  ];
   const runJobs = async () => {
-    payments.sweepExpired();
-    await slips.retryDue();
-    const invoiced = billing.runMonthly();
-    if (invoiced) app.log.info({ count: invoiced }, "monthly invoices issued");
-    const m = await maintenance.run();
-    if (m.backup) app.log.info({ file: m.backup }, "database backup written");
-    if (m.purged) app.log.info({ count: m.purged }, "old slip images deleted under the retention policy");
-    if (m.uploaded) app.log.info({ count: m.uploaded }, "files copied to off-site backup");
-    if (m.offsiteError) app.log.error({ error: m.offsiteError }, "off-site backup failed; will retry");
-    await webhooks.processDue();
+    for (const [name, run] of jobs) {
+      try {
+        await run();
+      } catch (err) {
+        app.log.error({ err, job: name }, "background job failed; the other jobs still ran");
+      }
+    }
   };
 
   return { app, db, merchants, payments, webhooks, slips, users, audit, bank, maintenance, billing, runJobs };

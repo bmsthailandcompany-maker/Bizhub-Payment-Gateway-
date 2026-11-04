@@ -25,7 +25,7 @@ export async function noticeRoutes(
 ) {
   const { merchants, payments, slips } = opts;
   // Each submission can cost slip-verification quota, so cap it per visitor and shop.
-  const limiter = new LoginLimiter(10, 60 * 60_000);
+  const limiter = new LoginLimiter(10, 60 * 60_000, 300);
 
   const open = (id: string): MerchantRow => {
     const m = merchants.get(id);

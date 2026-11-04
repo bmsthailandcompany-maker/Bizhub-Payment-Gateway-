@@ -9,6 +9,21 @@ export interface CardChargeRequest {
   description: string;
   returnUri: string;
   paymentId: string;
+  /** Same key for every send of one charge attempt, so a re-send never creates a second charge. */
+  idempotencyKey: string;
+}
+
+/**
+ * Thrown by a provider. `definitive` means the provider answered and refused the request, so no
+ * charge exists; otherwise (timeout, network error, provider 5xx) a charge may or may not exist.
+ */
+export class CardProviderError extends Error {
+  constructor(
+    message: string,
+    public readonly definitive: boolean,
+  ) {
+    super(message);
+  }
 }
 
 export interface CardChargeResult {
@@ -45,6 +60,9 @@ export class MockCardProvider implements CardProvider {
   }
 }
 
+/** Kept well below the payment lock window so a hung request never outlives the lock. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /** Omise / Opn Payments (https://docs.opn.ooo/charges-api). */
 export class OmiseCardProvider implements CardProvider {
   readonly name = "omise";
@@ -54,17 +72,28 @@ export class OmiseCardProvider implements CardProvider {
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
-  private async request(method: string, path: string, body?: Record<string, string>): Promise<any> {
-    const res = await this.fetchImpl(`https://api.omise.co${path}`, {
-      method,
-      headers: {
-        Authorization: "Basic " + Buffer.from(this.secretKey + ":").toString("base64"),
-        ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
-      },
-      body: body ? new URLSearchParams(body).toString() : undefined,
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(`Omise ${json?.code ?? res.status}: ${json?.message ?? "request failed"}`);
+  private async request(method: string, path: string, body?: Record<string, string>, idempotencyKey?: string): Promise<any> {
+    let res: Response;
+    let json: any;
+    try {
+      res = await this.fetchImpl(`https://api.omise.co${path}`, {
+        method,
+        headers: {
+          Authorization: "Basic " + Buffer.from(this.secretKey + ":").toString("base64"),
+          ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+          ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),
+        },
+        body: body ? new URLSearchParams(body).toString() : undefined,
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+      json = await res.json();
+    } catch (err) {
+      throw new CardProviderError(`Omise unreachable: ${err instanceof Error ? err.message : String(err)}`, false);
+    }
+    if (!res.ok) {
+      // 4xx: Omise refused the request, so nothing was charged. 5xx: the outcome is unknown.
+      throw new CardProviderError(`Omise ${json?.code ?? res.status}: ${json?.message ?? "request failed"}`, res.status < 500);
+    }
     return json;
   }
 
@@ -84,7 +113,7 @@ export class OmiseCardProvider implements CardProvider {
       description: req.description,
       return_uri: req.returnUri,
       "metadata[payment_id]": req.paymentId,
-    });
+    }, req.idempotencyKey);
     return this.toResult(charge);
   }
 

@@ -260,7 +260,16 @@ export class BillingService {
     if (inv.status !== "issued") throw new PaymentError(409, "invalid_state", "ใบแจ้งหนี้นี้ชำระแล้วหรือถูกยกเลิก");
     const current = inv.payment_id ? this.payments.get(inv.payment_id) : undefined;
     const live = current ? this.payments.expireIfDue(current) : undefined;
-    if (!live || live.status !== "pending") this.attachPayment(inv.id, inv.number, inv.total, inv.due_at);
+    if (live?.status === "succeeded") {
+      // Paid already; the invoice just was not updated (e.g. paid before this check existed).
+      this.markPaidByPayment(live);
+      throw new PaymentError(409, "invalid_state", "ใบแจ้งหนี้นี้ชำระแล้ว");
+    }
+    // Only a payment that can no longer be paid is replaced. One waiting for slip review stays,
+    // or approving it later would not mark the invoice paid.
+    if (!live || (live.status !== "pending" && live.status !== "awaiting_review")) {
+      this.attachPayment(inv.id, inv.number, inv.total, inv.due_at);
+    }
     const fresh = this.invoice(id)!;
     const p = fresh.payment_id ? this.payments.get(fresh.payment_id) : undefined;
     if (!p) throw new PaymentError(503, "billing_not_configured", "ยังไม่ได้ตั้งบัญชีรับชำระค่าบริการ กรุณาติดต่อผู้ให้บริการ");
@@ -268,8 +277,18 @@ export class BillingService {
   }
 
   private markPaidByPayment(p: PaymentRow): void {
-    const inv = this.db.prepare("SELECT * FROM invoices WHERE payment_id = ? AND status = 'issued'").get(p.id) as InvoiceRow | undefined;
-    if (inv) this.db.prepare("UPDATE invoices SET status = 'paid', paid_at = ? WHERE id = ?").run(now(), inv.id);
+    let inv = this.db.prepare("SELECT * FROM invoices WHERE payment_id = ? AND status = 'issued'").get(p.id) as InvoiceRow | undefined;
+    if (!inv && p.livemode === 1 && p.merchant_id === this.cfg.billingMerchantId) {
+      // An older payment link of the invoice was paid after a newer one replaced it. Only payments
+      // made to the operator's own billing shop count, so no shop can pay an invoice by metadata.
+      const invoiceId = (JSON.parse(p.metadata) as Record<string, string>).invoice_id;
+      if (invoiceId) {
+        inv = this.db.prepare("SELECT * FROM invoices WHERE id = ? AND status = 'issued' AND total = ?").get(invoiceId, p.amount) as
+          | InvoiceRow
+          | undefined;
+      }
+    }
+    if (inv) this.db.prepare("UPDATE invoices SET status = 'paid', paid_at = ?, payment_id = ? WHERE id = ?").run(now(), p.id, inv.id);
   }
 
   /** Staff record a payment received outside the gateway, or cancel an invoice issued in error. */
