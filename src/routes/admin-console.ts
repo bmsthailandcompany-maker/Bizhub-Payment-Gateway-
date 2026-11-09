@@ -1,3 +1,4 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { DUMMY_HASH, verifyPassword } from "../auth/passwords.ts";
@@ -130,6 +131,72 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
     return { ok: true };
   });
 
+  // Sandbox webhook uses Omise HMAC-SHA256 signature over timestamp.raw_body.
+  // A dedicated parser preserves the exact bytes; never authenticate via URL query secrets.
+  db.exec(`CREATE TABLE IF NOT EXISTS omise_sandbox_events (
+    event_id TEXT PRIMARY KEY, charge_id TEXT NOT NULL, status TEXT NOT NULL,
+    event_key TEXT NOT NULL, received_at TEXT NOT NULL
+  )`);
+  await app.register(async (webhook) => {
+    webhook.removeContentTypeParser("application/json");
+    webhook.addContentTypeParser("application/json", { parseAs:"buffer" }, (_req, body, done) => done(null,body));
+    webhook.post("/webhooks/omise/sandbox", async (req, reply) => {
+      const secret=process.env.OMISE_SANDBOX_WEBHOOK_SECRET;
+      const signature=req.headers["omise-signature"];
+      const timestamp=req.headers["omise-signature-timestamp"];
+      const raw=req.body;
+      if(!secret || typeof signature!=="string" || typeof timestamp!=="string" || !Buffer.isBuffer(raw)) {
+        req.log.warn({reason:!secret?"secret_missing":typeof signature!=="string"?"signature_header_missing":typeof timestamp!=="string"?"timestamp_header_missing":"raw_body_missing"},"omise_webhook_rejected");
+        return reply.code(401).send({ok:false});
+      }
+      // Omise documents timestamp freshness validation as optional.
+      // Verify the cryptographic signature first; deduplicate by event ID below.
+      // A stale but authentically signed delivery must not be rejected solely due
+      // to clock skew or delayed webhook delivery.
+      const key=Buffer.from(secret,"base64");
+      if(key.length<24) {
+        req.log.warn({reason:"secret_decode_invalid"},"omise_webhook_rejected");
+        return reply.code(401).send({ok:false});
+      }
+      const expected=createHmac("sha256",key).update(timestamp+".").update(raw).digest();
+      const valid=signature.split(",").some(part=>{
+        const hex=part.trim();
+        if(!/^[a-f0-9]{64}$/i.test(hex)) return false;
+        return timingSafeEqual(Buffer.from(hex,"hex"),expected);
+      });
+      if(!valid) {
+        req.log.warn({reason:"signature_mismatch",signatureCount:signature.split(",").length},"omise_webhook_rejected");
+        return reply.code(401).send({ok:false});
+      }
+      let body:unknown;
+      try{body=JSON.parse(raw.toString("utf8"));}catch{return reply.code(400).send({ok:false});}
+      const payload=z.object({
+        id:z.string().max(100),key:z.string().max(100),
+        data:z.object({id:z.string().max(100)}).passthrough(),
+      }).passthrough().parse(body);
+      if(!payload.id.startsWith("evnt_test_") || !payload.data.id.startsWith("chrg_test_") ||
+         !["charge.complete","charge.create"].includes(payload.key))
+        return reply.code(200).send({ok:true,ignored:true});
+      const apiKey=process.env.OMISE_TEST_SECRET_KEY;
+      if(!apiKey || !apiKey.startsWith("skey_test_"))return reply.code(503).send({ok:false});
+      const response=await fetch("https://api.omise.co/charges/"+encodeURIComponent(payload.data.id),{
+        headers:{Authorization:"Basic "+Buffer.from(apiKey+":").toString("base64")},
+        signal:AbortSignal.timeout(12000),
+      });
+      if(!response.ok)return reply.code(502).send({ok:false});
+      const charge:any=await response.json();
+      if(charge.id!==payload.data.id || charge.livemode!==false || charge.currency!=="THB" ||
+         !String(charge.description||"").startsWith("BIZHUB PAY sandbox PromptPay"))
+        return reply.code(200).send({ok:true,ignored:true});
+      if(!["pending","successful","failed","expired","reversed"].includes(charge.status))
+        return reply.code(200).send({ok:true,ignored:true});
+      db.prepare(`INSERT OR IGNORE INTO omise_sandbox_events
+        (event_id,charge_id,status,event_key,received_at) VALUES (?,?,?,?,?)`)
+        .run(payload.id,charge.id,charge.status,payload.key,now());
+      return {ok:true};
+    });
+  });
+
   await app.register(async (api) => {
     api.addHook("preHandler", async (req: FastifyRequest, reply: FastifyReply) => {
       const token = readCookie(req, COOKIE);
@@ -193,6 +260,82 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
     });
 
     // ---- overview ----
+    api.get(`${BASE}/providers/omise/test`, { preHandler: need("admins.manage") }, async () => {
+      const key = process.env.OMISE_TEST_SECRET_KEY;
+      if (!key || !key.startsWith("skey_test_")) return {configured:false,connected:false,mode:"test"};
+      try {
+        const response = await fetch("https://api.omise.co/account",{
+          headers:{Authorization:"Basic "+Buffer.from(key+":").toString("base64")},
+          signal:AbortSignal.timeout(8000),
+        });
+        return {configured:true,connected:response.ok,mode:"test",status:response.ok?"verified":"connection_failed"};
+      } catch { return {configured:true,connected:false,mode:"test",status:"unreachable"}; }
+    });
+
+    api.get(`${BASE}/providers/omise/webhook-status`, { preHandler: need("admins.manage") }, async () => {
+      const rows=db.prepare(`SELECT charge_id,status,event_key,received_at FROM omise_sandbox_events
+        ORDER BY received_at DESC LIMIT 30`).all();
+      return {configured:Boolean(process.env.OMISE_SANDBOX_WEBHOOK_SECRET),mode:"test",events:rows};
+    });
+
+    // Sandbox-only PromptPay: charges belong to the platform's Omise test account.
+    // Do not interpret these as merchant-direct settlement or production payments.
+    const omiseSandboxRequest = async (path: string, body?: URLSearchParams) => {
+      const key = process.env.OMISE_TEST_SECRET_KEY;
+      if (!key || !/^skey_test_/.test(key)) throw new PaymentError(503, "omise_not_configured", "ยังไม่ได้ตั้งค่า Omise Test Key");
+      const response = await fetch("https://api.omise.co" + path, {
+        method: body ? "POST" : "GET",
+        headers: {
+          Authorization: "Basic " + Buffer.from(key + ":").toString("base64"),
+          ...(body ? {"Content-Type":"application/x-www-form-urlencoded"} : {}),
+        },
+        body: body?.toString(),
+        signal: AbortSignal.timeout(12000),
+      });
+      const result: any = await response.json().catch(() => ({}));
+      if (!response.ok) throw new PaymentError(502, "omise_error", "Omise Sandbox: " + String(result.message || result.code || response.status).slice(0,200));
+      return result;
+    };
+
+    api.post(`${BASE}/providers/omise/promptpay-test`, { preHandler: need("admins.manage") }, async (req) => {
+      z.object({confirm:z.literal(true)}).strict().parse(req.body);
+      const source = await omiseSandboxRequest("/sources", new URLSearchParams({
+        type:"promptpay",amount:"2000",currency:"THB",
+      }));
+      if (!/^src_/.test(String(source.id))) throw new PaymentError(502,"omise_source_invalid","Omise ไม่ส่ง Source ID");
+      const charge = await omiseSandboxRequest("/charges",new URLSearchParams({
+        amount:"2000",currency:"THB",source:String(source.id),
+        description:"BIZHUB PAY sandbox PromptPay 20 THB",
+      }));
+      deps.audit.log({merchantId:null,actor:{kind:"admin_user",id:"system",name:"Omise Sandbox",role:"super_admin",mustChangePassword:false},action:"omise.sandbox_charge_created",target:String(charge.id),details:{amount:2000,mode:"test"},ip:req.ip});
+      return {
+        id:String(charge.id),amount:charge.amount,currency:charge.currency,status:charge.status,
+        qr_url:charge.source?.scannable_code?.image?.download_uri || source.scannable_code?.image?.download_uri || null,
+        mode:"test",notice:"ห้ามสแกนชำระด้วยเงินจริง",
+      };
+    });
+
+    api.get(`${BASE}/providers/omise/charges`, { preHandler: need("admins.manage") }, async () => {
+      const response = await omiseSandboxRequest("/charges?limit=50");
+      const charges = Array.isArray(response.data) ? response.data : [];
+      return { mode:"test", charges:charges.filter((charge:any) =>
+        charge.livemode === false &&
+        typeof charge.id === "string" && charge.id.startsWith("chrg_test_") &&
+        typeof charge.description === "string" &&
+        charge.description.startsWith("BIZHUB PAY sandbox PromptPay")
+      ).map((charge:any) => ({
+        id:charge.id,status:charge.status,amount:charge.amount,currency:charge.currency,
+        created_at:charge.created_at,
+        qr_url:charge.source?.scannable_code?.image?.download_uri ?? null,
+      })) };
+    });
+
+    api.get(`${BASE}/providers/omise/charges/:id`, { preHandler: need("admins.manage") }, async (req) => {
+      const {id}=z.object({id:z.string().regex(/^chrg_test_[a-zA-Z0-9]+$/)}).parse(req.params);
+      const charge=await omiseSandboxRequest("/charges/"+encodeURIComponent(id));
+      return {id:charge.id,status:charge.status,amount:charge.amount,currency:charge.currency,mode:"test"};
+    });
+
     api.get(`${BASE}/summary`, { preHandler: need("payments.view") }, async (req) => {
       const { livemode } = z.object({ livemode: z.enum(["true", "false"]).default("true") }).parse(req.query);
       const live = livemode === "true";

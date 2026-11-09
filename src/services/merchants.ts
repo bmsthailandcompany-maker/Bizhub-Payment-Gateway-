@@ -148,6 +148,20 @@ export class MerchantService {
     });
   }
 
+  /** Rotate only the live API key; test keys remain valid. Old live keys are revoked atomically. */
+  rotateLiveKey(id: string): string {
+    return tx(this.db, () => {
+      const merchant = this.get(id);
+      if (!merchant || merchant.active !== 1 || merchant.kyc_status !== "approved") {
+        throw new Error("ร้านค้ายังไม่พร้อมใช้งาน Live API");
+      }
+      const secret = "sk_live_" + randomToken(32);
+      this.db.prepare("UPDATE api_keys SET revoked_at=? WHERE merchant_id=? AND livemode=1 AND revoked_at IS NULL").run(now(), id);
+      this.db.prepare("INSERT INTO api_keys (id, merchant_id, key_hash, key_prefix, livemode, created_at) VALUES (?, ?, ?, ?, 1, ?)").run(newId("key"), id, sha256(secret), secret.slice(0, 12), now());
+      return secret;
+    });
+  }
+
   rotateWebhookSecret(id: string): string {
     const secret = "whsec_" + randomToken(32);
     this.db.prepare("UPDATE merchants SET webhook_secret=? WHERE id=?").run(secret, id);
