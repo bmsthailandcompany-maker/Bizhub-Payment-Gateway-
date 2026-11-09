@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { PosStore, migratePos } from "../pos/store.ts";
+import type { PosStore } from "../pos/store.ts";
 const posProductSchema = z.object({ name: z.string().trim().min(1).max(200), priceSatang: z.number().int().nonnegative(), costSatang: z.number().int().nonnegative().default(0) });
 const posQrSchema = z.object({ promptpayId: z.string().regex(/^[0-9]{10,15}$/) });
 const posOrderSchema = z.object({ items: z.array(z.object({ productId: z.string().uuid(), quantity: z.number().int().positive().max(10000) })).min(1).max(100) });
@@ -90,31 +90,31 @@ export async function merchantApiRoutes(
     );
   });
   // Phase 1 POS: authenticated merchant API keys only; all records scoped to req.merchant.
-  app.get("/v1/pos/products", async (req) => ({ data: pos.products(req.merchant!.id) }));
+  app.get("/v1/pos/products", async (req) => ({ data: pos.products(req.merchant!.id, req.livemode!) }));
   app.post("/v1/pos/products", async (req, reply) => {
     const body = posProductSchema.parse(req.body);
-    const id = pos.product(req.merchant!.id, body.name, body.priceSatang, body.costSatang);
+    const id = pos.product(req.merchant!.id, body.name, body.priceSatang, body.costSatang, req.livemode!);
     return reply.code(201).send({ id });
   });
   app.put("/v1/pos/qr", async (req) => {
     const body = posQrSchema.parse(req.body);
-    pos.qr(req.merchant!.id, body.promptpayId);
+    pos.qr(req.merchant!.id, body.promptpayId, req.livemode!);
     return { saved: true, ownerVerified: false, paymentAutoConfirmed: false };
   });
   app.post("/v1/pos/orders", async (req, reply) => {
     const body = posOrderSchema.parse(req.body);
-    const id = pos.order(req.merchant!.id, body.items);
+    const id = pos.order(req.merchant!.id, body.items, req.livemode!);
     return reply.code(201).send({ id, status: "open" });
   });
   app.post<{ Params: { id: string } }>("/v1/pos/orders/:id/confirm-cash", async (req) => {
-    pos.cash(req.merchant!.id, req.params.id);
+    pos.cash(req.merchant!.id, req.params.id, req.livemode!);
     return { id: req.params.id, status: "paid", tender: "cash" };
   });
   app.post("/v1/pos/expenses", async (req, reply) => {
     const body = posExpenseSchema.parse(req.body);
-    pos.expense(req.merchant!.id, body.category, body.amountSatang);
+    pos.expense(req.merchant!.id, body.category, body.amountSatang, req.livemode!);
     return reply.code(201).send({ recorded: true });
   });
-  app.get("/v1/pos/summary", async (req) => pos.summary(req.merchant!.id));
+  app.get("/v1/pos/summary", async (req) => pos.summary(req.merchant!.id, req.livemode!));
 
 }

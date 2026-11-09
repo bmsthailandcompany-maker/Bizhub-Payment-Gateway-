@@ -524,6 +524,19 @@
         } }, "เปลี่ยนรหัสผ่าน")) : null),
     ];
     if (S.me.user.kind === "merchant_user") {
+      const approved = m.kyc.status === "approved";
+      cards.push(h("div", { class: "card" }, h("h2", {}, "โหมดข้อมูล"),
+        h("p", { class: "small muted m0" }, "โหมดทดสอบใช้ลองสร้างลิงก์และเชื่อมต่อ API โดยไม่มีเงินจริง ข้อมูลสองโหมดแยกกันทั้งหมด"),
+        h("span", { class: "mode-switch mt12", role: "group", "aria-label": "โหมดข้อมูล" },
+          [[true, "ข้อมูลจริง"], [false, "ทดสอบ"]].map(([live, label]) => h("button", {
+            type: "button", "aria-pressed": String(S.me.livemode === live), disabled: live && !approved ? true : null,
+            title: live && !approved ? "ใช้ได้หลังร้านผ่านการยืนยันตัวตน" : null,
+            onclick: async () => {
+              if (S.me.livemode === live) return;
+              await api("/mode", { method: "POST", body: { livemode: live } });
+              try { sessionStorage.setItem("bizhub-mode-chosen", "1"); } catch {}
+              S.me.livemode = live; S.summary = null; S.list = []; renderShell(); go("settings");
+            } }, label)))));
       const nameInput = h("input", {type:"text",value:S.me.user.name,required:true,maxlength:120,autocomplete:"name"});
       const form = h("form",{class:"card grid",onsubmit:async(e)=>{
         e.preventDefault();
@@ -621,7 +634,9 @@
       });
     }
     // Prefer production data for approved merchant accounts. Never mislabel test data as real.
-    if (!S.me.livemode && S.me.user.kind === "merchant_user" && S.me.merchant.kyc.status === "approved") {
+    let modeChosen = false;
+    try { modeChosen = sessionStorage.getItem("bizhub-mode-chosen") === "1"; } catch {}
+    if (!modeChosen && !S.me.livemode && S.me.user.kind === "merchant_user" && S.me.merchant.kyc.status === "approved") {
       try {
         await api("/mode", {method:"POST",body:{livemode:true}});
         S.me = await api("/me");

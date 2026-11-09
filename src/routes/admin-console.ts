@@ -307,7 +307,7 @@ export async function adminConsoleRoutes(app: FastifyInstance, deps: AdminConsol
         amount:"2000",currency:"THB",source:String(source.id),
         description:"BIZHUB PAY sandbox PromptPay 20 THB",
       }));
-      deps.audit.log({merchantId:null,actor:{kind:"admin_user",id:"system",name:"Omise Sandbox",role:"super_admin",mustChangePassword:false},action:"omise.sandbox_charge_created",target:String(charge.id),details:{amount:2000,mode:"test"},ip:req.ip});
+      log(req, "omise.sandbox_charge_created", null, String(charge.id), { amount: 2000, mode: "test" });
       return {
         id:String(charge.id),amount:charge.amount,currency:charge.currency,status:charge.status,
         qr_url:charge.source?.scannable_code?.image?.download_uri || source.scannable_code?.image?.download_uri || null,

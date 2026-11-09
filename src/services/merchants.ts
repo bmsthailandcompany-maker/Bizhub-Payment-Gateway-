@@ -1,6 +1,7 @@
 import type { Db } from "../db.ts";
 import { now, tx } from "../db.ts";
 import { newId, randomToken, sha256 } from "../ids.ts";
+import { PaymentError } from "./payments.ts";
 
 export interface MerchantRow {
   id: string;
@@ -153,7 +154,7 @@ export class MerchantService {
     return tx(this.db, () => {
       const merchant = this.get(id);
       if (!merchant || merchant.active !== 1 || merchant.kyc_status !== "approved") {
-        throw new Error("ร้านค้ายังไม่พร้อมใช้งาน Live API");
+        throw new PaymentError(409, "merchant_not_ready", "ร้านค้ายังไม่พร้อมใช้งาน Live API");
       }
       const secret = "sk_live_" + randomToken(32);
       this.db.prepare("UPDATE api_keys SET revoked_at=? WHERE merchant_id=? AND livemode=1 AND revoked_at IS NULL").run(now(), id);

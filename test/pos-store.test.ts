@@ -29,3 +29,33 @@ test("QR binding is not automatically verified",()=>{
  assert.throws(()=>pos.qr("shop-a","invalid"));
  db.close();
 });
+test("test-key and live-key POS data never mix",()=>{
+ const db=new DatabaseSync(":memory:");migratePos(db);
+ const pos=new PosStore(db);
+ const live=pos.product("shop-a","Coffee",6500,0,true);
+ const testP=pos.product("shop-a","Coffee (test)",100,0,false);
+ assert.equal(pos.products("shop-a",true).length,1);
+ assert.equal(pos.products("shop-a",false).length,1);
+ assert.throws(()=>pos.order("shop-a",[{productId:live,quantity:1}],false),/ไม่พบสินค้า/);
+ const o=pos.order("shop-a",[{productId:testP,quantity:3}],false);
+ assert.throws(()=>pos.cash("shop-a",o,true));
+ pos.cash("shop-a",o,false);
+ assert.deepEqual(pos.summary("shop-a",true),{incomeSatang:0,expenseSatang:0,netSatang:0});
+ assert.deepEqual(pos.summary("shop-a",false),{incomeSatang:300,expenseSatang:0,netSatang:300});
+ pos.qr("shop-a","0812345678",true); pos.qr("shop-a","0899999999",false);
+ assert.equal((db.prepare("SELECT COUNT(*) AS n FROM pos_qr").get() as {n:number}).n,2);
+ db.close();
+});
+test("an existing POS database is upgraded in place and its rows stay live",()=>{
+ const db=new DatabaseSync(":memory:");
+ db.exec(`CREATE TABLE pos_qr (merchant_id TEXT PRIMARY KEY, promptpay_id TEXT NOT NULL, owner_verified INTEGER NOT NULL DEFAULT 0);
+  INSERT INTO pos_qr VALUES ('shop-a','0812345678',0);
+  CREATE TABLE pos_products (id TEXT PRIMARY KEY, merchant_id TEXT NOT NULL, name TEXT NOT NULL, price INTEGER NOT NULL CHECK(price>=0), cost INTEGER NOT NULL DEFAULT 0, active INTEGER NOT NULL DEFAULT 1);
+  INSERT INTO pos_products VALUES ('p1','shop-a','Old',100,0,1);`);
+ migratePos(db); migratePos(db);
+ const pos=new PosStore(db);
+ assert.equal(pos.products("shop-a",true).length,1);
+ assert.equal(pos.products("shop-a",false).length,0);
+ assert.deepEqual(db.prepare("SELECT merchant_id,livemode,promptpay_id FROM pos_qr").all().map(r=>({...r})),[{merchant_id:"shop-a",livemode:1,promptpay_id:"0812345678"}]);
+ db.close();
+});
