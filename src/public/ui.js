@@ -208,7 +208,9 @@
       h("label",{class:"f"},"อีเมล / User ID",email),
       h("label",{class:"f"},"รหัสผ่าน",pw),
       err,btn);
-    root.replaceChildren(h("div",{class:"login-scene"},h("div",{class:"login-shell"},h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),form)));
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    root.replaceChildren(h("div",{class:"login-scene"},h("div",{class:"login-shell"},h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),form,
+      standalone ? null : h("a",{class:"login-install",href:"/install"},"📲 ติดตั้งแอป BIZHUB PAY ลงมือถือ"))));
     email.focus();
   }
 
@@ -658,6 +660,9 @@
           h("a", { class: "btn sm", href: docUrl(i), target: "_blank", rel: "noopener" }, "ใบแจ้งหนี้"),
           ...(actions ? actions(i) : []).filter(Boolean))))))));
   }
+
+  // Lets Chrome/Edge offer "Install app"; the worker never caches payment data (see routes/pwa.ts).
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
   window.UI = {
     h, svg, baht, bahtShort, dt, dayLabel, STATUS, METHOD, statusBadge, toast, copyText, copyField, makeApi,

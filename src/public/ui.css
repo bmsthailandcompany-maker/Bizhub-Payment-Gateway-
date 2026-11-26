@@ -727,3 +727,5 @@ header.top .profile-shortcut:hover,header.top .profile-shortcut:focus-visible {b
  .login-scene .unified-login {padding:24px 20px!important;}
  .login-scene .login-submit {min-height:52px!important;font-size:18px!important;}
 }
+.login-install { display:block; text-align:center; margin-top:14px; color:#fff; font-weight:600; text-decoration:none; text-shadow:0 1px 4px #0006; }
+.login-install:hover { text-decoration:underline; }
