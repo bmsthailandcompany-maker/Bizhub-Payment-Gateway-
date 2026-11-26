@@ -208,7 +208,9 @@
       h("label",{class:"f"},"อีเมล / User ID",email),
       h("label",{class:"f"},"รหัสผ่าน",pw),
       err,btn);
-    root.replaceChildren(h("div",{class:"login-scene"},h("div",{class:"login-shell"},h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),form)));
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    root.replaceChildren(h("div",{class:"login-scene"},h("div",{class:"login-shell"},h("div",{class:"login-brand",role:"img","aria-label":"BIZHUB PAY"}),form,
+      standalone ? null : h("a",{class:"login-install",href:"/install"},"📲 ติดตั้งแอป BIZHUB PAY ลงมือถือ"))));
     email.focus();
   }
 

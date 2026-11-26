@@ -11,6 +11,7 @@ import { checkoutRoutes, MAX_SLIP_BYTES } from "./routes/checkout.ts";
 import { adminConsoleRoutes } from "./routes/admin-console.ts";
 import { assetRoutes } from "./routes/assets.ts";
 import { pwaRoutes } from "./routes/pwa.ts";
+import { installRoutes } from "./routes/install.ts";
 import { bankNotifyRoutes } from "./routes/bank.ts";
 import { legalRoutes } from "./routes/legal.ts";
 import { noticeRoutes } from "./routes/notice.ts";
@@ -158,6 +159,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   await app.register(adminRoutes, { db, adminToken: config.adminToken, merchants, payments });
   await app.register(assetRoutes);
   await app.register(pwaRoutes);
+  await app.register(installRoutes);
   await app.register(dashboardRoutes, {
     db,
     merchants,

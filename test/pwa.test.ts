@@ -26,3 +26,17 @@ test("the dashboard is installable: manifest, icons, service worker and shell ta
     await cleanup();
   }
 });
+
+test("/install explains installing on each device and links its own script and styles", async () => {
+  const { gw, cleanup } = await makeGateway();
+  try {
+    const r = await gw.app.inject({ method: "GET", url: "/install" });
+    assert.equal(r.statusCode, 200);
+    assert.match(r.headers["content-security-policy"] as string, /script-src 'self'/);
+    for (const text of ["เพิ่มไปยังหน้าจอโฮม", "ติดตั้งแอป", "Android", "iPhone"]) assert.match(r.body, new RegExp(text));
+    assert.doesNotMatch(r.body, /<script>(?!<\/script>)/, "no inline script (CSP)");
+    for (const asset of ["/assets/install.js", "/assets/install.css"]) assert.equal((await gw.app.inject({ method: "GET", url: asset })).statusCode, 200, asset);
+  } finally {
+    await cleanup();
+  }
+});
