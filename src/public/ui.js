@@ -659,6 +659,9 @@
           ...(actions ? actions(i) : []).filter(Boolean))))))));
   }
 
+  // Lets Chrome/Edge offer "Install app"; the worker never caches payment data (see routes/pwa.ts).
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+
   window.UI = {
     h, svg, baht, bahtShort, dt, dayLabel, STATUS, METHOD, statusBadge, toast, copyText, copyField, makeApi,
     drawer, modal, showSecret, formModal, loginView, changePasswordView, shell, salesChart, paymentTable, openPayment,
