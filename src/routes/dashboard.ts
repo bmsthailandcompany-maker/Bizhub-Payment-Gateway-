@@ -6,6 +6,7 @@ import type { Db } from "../db.ts";
 import type { AuditService } from "../services/audit.ts";
 import { type BankService, serializeConnection } from "../services/bank.ts";
 import type { BillingService } from "../services/billing.ts";
+import { PUSH_EVENTS, type PushService } from "../services/push.ts";
 import { INVOICE_DOC_CSP, renderInvoiceDocument } from "./invoice-document.ts";
 import { KYC_DOCUMENT_KINDS, type KycDocumentKind, kycMissing, type KycService } from "../services/kyc.ts";
 import { MAX_EXPORT_ROWS, paymentExportTable } from "../services/export.ts";
@@ -56,6 +57,7 @@ export interface DashboardDeps {
   bank: BankService;
   kyc: KycService;
   billing: BillingService;
+  push: PushService;
   publicBaseUrl: string;
 }
 
@@ -65,7 +67,7 @@ export interface DashboardDeps {
  * secret key also works and acts as the owner.
  */
 export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps) {
-  const { db, merchants, payments, slips, users, sessions, audit, limiter, bank, kyc, billing } = deps;
+  const { db, merchants, payments, slips, users, sessions, audit, limiter, bank, kyc, billing, push } = deps;
 
   app.get("/dashboard", async (_req, reply) => pageHeaders(reply).send(appShell("Bizhub Dashboard", "dashboard.js")));
 
@@ -267,6 +269,39 @@ export async function dashboardRoutes(app: FastifyInstance, deps: DashboardDeps)
       const secret = merchants.rotateLiveKey(req.merchant!.id);
       log(req, "merchant.live_key_rotated", req.merchant!.id);
       return { live_secret_key: secret };
+    });
+
+    // ---- phone / desktop notifications (Web Push) for the signed-in staff member ----
+    const pushEndpoint = z.string().url().max(1000).refine((u) => u.startsWith("https://"), "endpoint must be https");
+    const staffOnly = (req: FastifyRequest) => {
+      if (req.actor!.kind !== "merchant_user") throw new PaymentError(400, "not_a_user", "เข้าสู่ระบบด้วยบัญชีพนักงานเพื่อเปิดการแจ้งเตือน");
+      return req.actor!.id!;
+    };
+    api.get("/dashboard/api/push", { preHandler: need("payments.view") }, async (req) => {
+      const { endpoint } = z.object({ endpoint: pushEndpoint.optional() }).parse(req.query);
+      return { public_key: push.vapid.publicKey, subscription: endpoint && req.actor!.kind === "merchant_user" ? push.status(req.actor!.id!, endpoint) : null };
+    });
+    api.post("/dashboard/api/push", { preHandler: need("payments.view") }, async (req) => {
+      const userId = staffOnly(req);
+      const body = z.object({
+        subscription: z.object({ endpoint: pushEndpoint, keys: z.object({ p256dh: z.string().min(1).max(200), auth: z.string().min(1).max(100) }) }),
+        events: z.array(z.enum(PUSH_EVENTS)).max(PUSH_EVENTS.length),
+      }).parse(req.body);
+      push.subscribe(req.merchant!.id, userId, body.subscription, [...new Set(body.events)]);
+      log(req, "push.subscribe", userId, { events: body.events });
+      return { ok: true };
+    });
+    api.post("/dashboard/api/push/unsubscribe", async (req) => {
+      const userId = staffOnly(req);
+      const { endpoint } = z.object({ endpoint: pushEndpoint }).parse(req.body);
+      push.unsubscribe(userId, endpoint);
+      return { ok: true };
+    });
+    api.post("/dashboard/api/push/test", { preHandler: need("payments.view") }, async (req) => {
+      const userId = staffOnly(req);
+      const { endpoint } = z.object({ endpoint: pushEndpoint }).parse(req.body);
+      await push.test(userId, endpoint);
+      return { ok: true };
     });
 
     api.post("/dashboard/api/password", async (req) => {

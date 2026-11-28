@@ -74,7 +74,7 @@
     "merchant.privacy_url": "แก้ลิงก์นโยบายความเป็นส่วนตัว", "merchant.signup": "สมัครร้านค้าใหม่", "kyc.update": "แก้ข้อมูลยืนยันตัวตนร้าน",
     "kyc.document_added": "แนบเอกสารยืนยันตัวตน", "kyc.document_removed": "ลบเอกสารยืนยันตัวตน", "kyc.submitted": "ส่งเอกสารให้ตรวจ", "kyc.approved": "อนุมัติร้านค้า",
     "kyc.rejected": "ไม่อนุมัติร้านค้า", "kyc.document_viewed": "เปิดดูเอกสารร้าน", "notice.enable": "เปิดหน้าแจ้งชำระเงิน", "notice.disable": "ปิดหน้าแจ้งชำระเงิน", "payment.bank_confirmed": "ธนาคารยืนยันเงินเข้า", "bank.assign": "จับคู่เงินเข้ากับรายการ", "bank.notification": "ธนาคารแจ้งเงินเข้า (จับคู่ไม่ได้)", "admin_user.reset_password": "รีเซ็ตรหัสผ่านแอดมิน", "admin_user.password_changed": "แอดมินเปลี่ยนรหัสผ่าน",
-    "plan.create": "สร้างแพ็กเกจ", "plan.update": "แก้ไขแพ็กเกจ", "merchant.plan": "เปลี่ยนแพ็กเกจของร้าน", "invoices.generate": "ออกใบแจ้งหนี้รายเดือน", "invoice.mark_paid": "บันทึกว่าชำระค่าบริการแล้ว", "invoice.void": "ยกเลิกใบแจ้งหนี้",
+    "plan.create": "สร้างแพ็กเกจ", "plan.update": "แก้ไขแพ็กเกจ", "merchant.plan": "เปลี่ยนแพ็กเกจของร้าน", "invoices.generate": "ออกใบแจ้งหนี้รายเดือน", "invoice.mark_paid": "บันทึกว่าชำระค่าบริการแล้ว", "invoice.void": "ยกเลิกใบแจ้งหนี้", "push.subscribe": "เปิดการแจ้งเตือนบนอุปกรณ์",
   };
 
   function statusBadge(s) {

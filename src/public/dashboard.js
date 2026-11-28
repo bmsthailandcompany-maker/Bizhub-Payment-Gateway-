@@ -513,6 +513,64 @@
         }) : h("div", { class: "empty" }, "ยังไม่มีใบแจ้งหนี้"))));
   }
 
+  // ---------- push notifications ----------
+  const urlKey = (b64) => {
+    const pad = "=".repeat((4 - (b64.length % 4)) % 4);
+    const raw = atob((b64 + pad).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+  };
+  async function notificationCard(box) {
+    const title = h("h2", {}, "การแจ้งเตือน");
+    const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;
+    const standalone = window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+    const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    if (!supported) {
+      box.replaceChildren(title, h("p", { class: "small muted" }, isIOS && !standalone
+        ? "iPhone/iPad: ติดตั้งแอปลงหน้าจอโฮมก่อน (iOS 16.4 ขึ้นไป) แล้วเปิดจากไอคอน จึงจะเปิดการแจ้งเตือนได้"
+        : "เบราว์เซอร์นี้ไม่รองรับการแจ้งเตือน ลองใช้ Chrome หรือ Edge"),
+        h("a", { class: "btn sm", href: "/install" }, "วิธีติดตั้งแอป"));
+      return;
+    }
+    const reg = await navigator.serviceWorker.register("/sw.js").then(() => navigator.serviceWorker.ready);
+    let sub = await reg.pushManager.getSubscription();
+    const info = await api("/push" + (sub ? "?endpoint=" + encodeURIComponent(sub.endpoint) : ""));
+    const on = Boolean(sub && info.subscription);
+    const events = on ? info.subscription.events : ["paid", "review"];
+    const paid = h("input", { type: "checkbox", checked: events.includes("paid") ? true : null });
+    const review = h("input", { type: "checkbox", checked: events.includes("review") ? true : null });
+    const msg = h("p", { class: "small", role: "status" });
+    const chosen = () => [paid.checked && "paid", review.checked && "review"].filter(Boolean);
+    const save = async () => {
+      if (Notification.permission === "denied") throw new Error("เบราว์เซอร์บล็อกการแจ้งเตือนของเว็บนี้อยู่ เปิดได้ที่ ตั้งค่าเว็บไซต์ → การแจ้งเตือน");
+      if (await Notification.requestPermission() !== "granted") throw new Error("ต้องกด \"อนุญาต\" การแจ้งเตือนก่อน");
+      sub = sub || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlKey(info.public_key) });
+      await api("/push", { method: "POST", body: { subscription: sub.toJSON(), events: chosen() } });
+    };
+    const act = (fn, done) => async (e) => {
+      const b = e.currentTarget; b.disabled = true; msg.textContent = ""; msg.className = "small";
+      try { await fn(); if (done) toast(done); await notificationCard(box); }
+      catch (ex) { msg.className = "small error"; msg.textContent = ex.message; b.disabled = false; }
+    };
+    const choices = h("div", { class: "grid" },
+      h("label", { class: "check" }, paid, "💰 เงินเข้า (ชำระสำเร็จ)"),
+      h("label", { class: "check" }, review, "🔎 มีสลิปหรือเงินโอนรอตรวจสอบ"));
+    box.replaceChildren(...[title,
+      h("p", { class: "small muted" }, "แจ้งเตือนบนมือถือหรือคอมเครื่องนี้ แม้ไม่ได้เปิดแอปอยู่ (เฉพาะรายการโหมดจริง)"),
+      on ? h("p", { class: "m0" }, h("span", { class: "status on" }, "เปิดอยู่บนเครื่องนี้")) : null,
+      choices,
+      h("div", { class: "row mt12" },
+        on
+          ? [h("button", { class: "btn primary", type: "button", onclick: act(save, "บันทึกแล้ว") }, "บันทึก"),
+             h("button", { class: "btn", type: "button", onclick: act(() => api("/push/test", { method: "POST", body: { endpoint: sub.endpoint } }), "ส่งการแจ้งเตือนทดสอบแล้ว") }, "ทดสอบ"),
+             h("button", { class: "btn bad", type: "button", onclick: act(async () => {
+               await api("/push/unsubscribe", { method: "POST", body: { endpoint: sub.endpoint } }).catch(() => {});
+               await sub.unsubscribe(); sub = null;
+             }, "ปิดการแจ้งเตือนแล้ว") }, "ปิด")]
+          : h("button", { class: "btn primary", type: "button", onclick: act(save, "เปิดการแจ้งเตือนแล้ว") }, "🔔 เปิดการแจ้งเตือนบนเครื่องนี้")),
+      isIOS && !standalone ? h("p", { class: "small muted" }, "iPhone/iPad ต้องเปิดจากแอปที่ติดตั้งบนหน้าจอโฮม") : null,
+      msg].filter(Boolean));
+  }
+
   // ---------- settings ----------
   async function viewSettings() {
     const m = S.me.merchant;
@@ -577,6 +635,11 @@
         h("p",{class:"small muted"},"เฉพาะเจ้าของร้าน • Key เดิมจะถูกยกเลิกทันทีหลังยืนยัน • Test Key ไม่เปลี่ยน"),
         h("label",{class:"f"},"ยืนยันด้วยรหัสผ่านเจ้าของร้าน",password),btn,result);
       cards.push(form);
+    }
+    if (S.me.user.kind === "merchant_user" && can("payments.view")) {
+      const box = h("div", { class: "card" }, h("h2", {}, "การแจ้งเตือน"), h("p", { class: "muted" }, "กำลังตรวจสอบ…"));
+      cards.push(box);
+      notificationCard(box).catch((ex) => box.replaceChildren(h("h2", {}, "การแจ้งเตือน"), h("p", { class: "error" }, ex.message)));
     }
     if (S.me.user.kind === "merchant_user") {
       const mfaBox = h("div");
@@ -645,8 +708,17 @@
       }
     }
     S.summary = can("payments.view") ? await api("/summary").catch(() => null) : null;
+    applyHash();
     go(S.tab);
   }
+  /** Notifications link to /dashboard#payments or #review. */
+  function applyHash() {
+    const h = location.hash.slice(1);
+    if (h === "review") { S.tab = "payments"; S.filter = "awaiting_review"; S.list = []; }
+    else if (h === "payments") { S.tab = "payments"; S.filter = ""; S.list = []; }
+    if (h) history.replaceState(null, "", location.pathname);
+  }
+  window.addEventListener("hashchange", () => { if (S.me) { applyHash(); go(S.tab); } });
   setInterval(() => {
     if (!S.me || document.hidden || document.querySelector(".drawer,.modal")) return;
     if (S.tab === "overview") viewOverview().catch(() => {});

@@ -132,6 +132,13 @@ export class PaymentService {
     this.succeededListeners.push(fn);
   }
 
+  /** Told about every status change, inside its transaction (defer side effects until it commits). */
+  private transitionListeners: ((p: PaymentRow, to: PaymentStatus) => void)[] = [];
+
+  onTransition(fn: (p: PaymentRow, to: PaymentStatus) => void): void {
+    this.transitionListeners.push(fn);
+  }
+
   constructor(
     private readonly db: Db,
     private readonly config: Config,
@@ -341,6 +348,7 @@ export class PaymentService {
       }
       this.webhooks.emit(payment.merchant_id, `payment.${to}`, id, this.serialize(payment));
       if (to === "succeeded") for (const fn of this.succeededListeners) fn(payment);
+      for (const fn of this.transitionListeners) fn(payment, to);
       return payment;
     });
   }

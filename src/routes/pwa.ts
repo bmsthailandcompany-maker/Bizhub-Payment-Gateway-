@@ -34,6 +34,24 @@ const OFFLINE = '<!doctype html><html lang="th"><head><meta charset="utf-8"><met
   '<button onclick="location.reload()" style="font:inherit;padding:10px 18px;border:0;border-radius:10px;background:#075dcc;color:#fff">ลองใหม่</button></div></body></html>';
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+self.addEventListener("push", (e) => {
+  let m = {};
+  try { m = e.data ? e.data.json() : {}; } catch { m = { body: e.data ? e.data.text() : "" }; }
+  e.waitUntil(self.registration.showNotification(m.title || "BIZHUB PAY", {
+    body: m.body || "", tag: m.tag, renotify: true, data: { url: m.url || "/dashboard" },
+    icon: "/assets/icon-192.png", badge: "/assets/icon-192.png", lang: "th",
+  }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || "/dashboard", self.location.origin).href;
+  e.waitUntil((async () => {
+    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const win = wins.find((w) => new URL(w.url).pathname.startsWith("/dashboard"));
+    if (win) { await win.focus(); return win.navigate(url).catch(() => {}); }
+    return self.clients.openWindow(url);
+  })());
+});
 self.addEventListener("fetch", (e) => {
   if (e.request.mode !== "navigate") return;
   e.respondWith(fetch(e.request).catch(() => new Response(OFFLINE, { headers: { "Content-Type": "text/html; charset=utf-8" } })));

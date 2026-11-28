@@ -1,3 +1,4 @@
+import { loadVapidKeys, PushService } from "./services/push.ts";
 import multipart from "@fastify/multipart";
 import { migratePos, PosStore } from "./pos/store.ts";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -42,6 +43,8 @@ export interface AppDeps {
   /** Host lookup used to keep webhooks off private addresses. */
   resolveHost?: import("./services/webhooks.ts").ResolveHost;
   logger?: boolean;
+  /** Replaces the Web Push delivery (tests). */
+  pushSender?: import("./services/push.ts").PushSender;
 }
 
 export interface Gateway {
@@ -56,6 +59,7 @@ export interface Gateway {
   bank: BankService;
   maintenance: MaintenanceService;
   billing: BillingService;
+  push: PushService;
   /** Runs one round of background work (expiry sweep + webhook delivery). */
   runJobs(): Promise<void>;
 }
@@ -96,6 +100,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   const limiter = new LoginLimiter();
   const bank = new BankService(db, payments, audit);
   const kyc = new KycService(db, merchants, users, config.dataDir);
+  const push = new PushService(db, payments, loadVapidKeys(config.dataDir), deps.pushSender);
   const billing = new BillingService(db, merchants, payments, config.billing ?? {
     vatRateBps: 700,
     dueDays: 7,
@@ -162,6 +167,7 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
   await app.register(installRoutes);
   await app.register(dashboardRoutes, {
     db,
+    push,
     merchants,
     payments,
     slips,
@@ -232,5 +238,5 @@ export async function buildApp(config: Config, deps: AppDeps = {}): Promise<Gate
     }
   };
 
-  return { app, db, merchants, payments, webhooks, slips, users, audit, bank, maintenance, billing, runJobs };
+  return { app, db, merchants, payments, webhooks, slips, users, audit, bank, maintenance, billing, push, runJobs };
 }

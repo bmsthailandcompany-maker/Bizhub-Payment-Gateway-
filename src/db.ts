@@ -224,6 +224,20 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
   PRIMARY KEY (merchant_id, key)
 );
 
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id TEXT PRIMARY KEY,
+  merchant_id TEXT NOT NULL REFERENCES merchants(id),
+  user_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  events TEXT NOT NULL,
+  failures INTEGER NOT NULL DEFAULT 0,
+  last_sent_at TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS push_subscriptions_merchant ON push_subscriptions(merchant_id);
+
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   merchant_id TEXT NOT NULL,
